@@ -55,16 +55,19 @@ class ReplicateInpainting:
 
         # Mask dilation mặc định (px) - mở rộng mask để phủ viền đối tượng
         self.default_mask_padding = 15
-        
-        # Prompts optimized for empty room generation
+    
+        # Prompt tập trung vào sự liền mạch, bề mặt và bối cảnh chung (Không gán cứng Tường/Sàn)
         self.default_prompt = (
-            "clean wall texture, matching floor pattern, seamless blend, "
-            "natural lighting, photorealistic interior, high quality"
+            "empty space, seamless background texture, continuous surface, "
+            "perfect blend with surrounding environment, natural lighting, "
+            "photorealistic interior, 8k resolution, architectural photography"
         )
         
+        # Negative Prompt bổ sung các lỗi "kinh điển" của Inpainting (bóng đổ thừa, vết cắt)
         self.default_negative_prompt = (
-            "furniture, objects, decorations, people, text, watermark, "
-            "blur, distortion, artifacts, unrealistic, low quality"
+            "leftover shadows, floating objects, ghosting, mismatched patterns, "
+            "harsh edges, cut seams, furniture, people, pets, text, watermark, "
+            "blurry, deformed, cartoon, illustration, low quality"
         )
         
         logger.info("✅ Replicate API client initialized")
