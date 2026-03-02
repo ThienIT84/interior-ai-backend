@@ -13,7 +13,7 @@ from PIL import Image
 import logging
 
 from app.config import settings
-from app.core.diffusion_inpainting import get_inpainting_service
+from app.core.inpainting_service import get_inpainting_service
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ class InpaintRequest(BaseModel):
     guidance_scale: Optional[float] = Field(None, ge=1.0, le=20.0, description="Guidance scale (default: 11.0)")
     strength: Optional[float] = Field(None, ge=0.1, le=1.0, description="Inpainting strength (default: 0.99)")
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
+    mask_padding: Optional[int] = Field(None, ge=0, le=50, description="Mask dilation pixels - mở rộng mask để phủ viền đối tượng (default: 15)")
 
 
 class InpaintResponse(BaseModel):
@@ -111,6 +112,7 @@ async def remove_object(request: InpaintRequest):
             guidance_scale=request.guidance_scale,
             strength=request.strength,
             seed=request.seed,
+            mask_padding=request.mask_padding,
         )
         
         processing_time = time.time() - start_time
@@ -275,6 +277,7 @@ async def _process_inpainting_job(job_id: str, request: InpaintRequest):
             guidance_scale=request.guidance_scale,
             strength=request.strength,
             seed=request.seed,
+            mask_padding=request.mask_padding,
         )
         
         _jobs[job_id]["progress"] = 0.9
