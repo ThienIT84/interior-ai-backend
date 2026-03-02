@@ -25,16 +25,10 @@ async def lifespan(app: FastAPI):
     model_manager = get_model_manager()
     logger.info(f"✅ Models loaded on device: {model_manager.device}")
     
-    # Pre-load Stable Diffusion model to avoid timeout on first request
-    logger.info("⏳ Pre-loading Stable Diffusion model (this may take 2-3 minutes)...")
-    try:
-        from app.core.diffusion_inpainting import get_inpainting_service
-        inpainting_service = get_inpainting_service()
-        inpainting_service.load_model()
-        logger.info("✅ Stable Diffusion model pre-loaded successfully")
-    except Exception as e:
-        logger.error(f"❌ Failed to pre-load Stable Diffusion model: {e}")
-        logger.warning("⚠️  Model will be loaded on first request (may cause timeout)")
+    # Note: Stable Diffusion models are now lazy-loaded by hybrid inpainting service
+    # - Replicate API: No local model needed
+    # - Local GPU: Model loads on first request (saves RAM and startup time)
+    logger.info("✅ Hybrid inpainting service ready (Replicate API + Local GPU fallback)")
     
     yield
     
