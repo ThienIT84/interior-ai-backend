@@ -24,20 +24,24 @@ class DiffusionInpainting:
         # Optimized parameters for OBJECT REMOVAL
         self.default_params = {
             "steps": 50,
-            "guidance": 8.5,   # Higher guidance for stronger prompt adherence
+            "guidance": 11.0,   # Higher guidance = stronger prompt adherence = better removal
             "strength": 1.0,   # Maximum - starts from pure noise, fully replaces object
             "target_size": 512,
         }
         
-        # Prompts optimized for empty room generation
+        # Prompts optimized for COMPLETE object removal (empty room)
+        # Key: be very explicit about what to generate AND what NOT to generate
         self.default_prompt = (
-            "clean wall texture, matching floor pattern, seamless blend, "
-            "natural lighting, photorealistic interior, high quality"
+            "empty room, bare floor, plain wall, no furniture, no objects, "
+            "clean surface, seamless background, matching floor texture, "
+            "continuous wall pattern, natural lighting, photorealistic"
         )
         
         self.default_negative_prompt = (
-            "furniture, objects, decorations, people, text, watermark, "
-            "blur, distortion, artifacts, unrealistic, low quality"
+            "furniture, chair, table, sofa, bed, desk, shelf, cabinet, lamp, "
+            "object, decoration, person, people, animal, pet, text, watermark, "
+            "blurry, distorted, artifacts, unrealistic, low quality, "
+            "new furniture, replaced furniture, upgraded furniture, different chair"
         )
     
     def load_model(self):
@@ -150,6 +154,7 @@ class DiffusionInpainting:
         guidance_scale: Optional[float] = None,
         strength: Optional[float] = None,
         seed: Optional[int] = None,
+        mask_padding: Optional[int] = None,
     ) -> Tuple[Image.Image, dict]:
         """
         Perform inpainting to remove objects and generate empty room
@@ -177,14 +182,26 @@ class DiffusionInpainting:
         guidance_scale = guidance_scale or self.default_params["guidance"]
         strength = strength or self.default_params["strength"]
         
-        logger.info("Starting inpainting...")
+        logger.info("Starting LOCAL GPU inpainting (object removal)...")
         logger.info(f"  Steps: {steps}, Guidance: {guidance_scale}, Strength: {strength}")
+        logger.info(f"  Prompt: {prompt[:60]}...")
         
         start_time = time.time()
         
         try:
             # Prepare images
+            # NOTE: diffusers convention = white (255) = inpaint area
+            # SAM mask = white (255) = object => CORRECT, no inversion needed
             image_prep, mask_prep = self.prepare_images(image, mask)
+            
+            # Debug: save mask being used for verification
+            try:
+                from app.config import settings as _s
+                debug_path = _s.OUTPUTS_DIR / f"debug_mask_local_{int(time.time())}.png"
+                mask_prep.save(debug_path)
+                logger.info(f"  \U0001f50d Debug mask saved: {debug_path}")
+            except Exception:
+                pass
             
             # Setup generator for reproducibility
             generator = None
