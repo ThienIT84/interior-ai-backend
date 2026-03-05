@@ -7,6 +7,7 @@ import replicate
 import io
 import time
 import logging
+import numpy as np
 from PIL import Image, ImageFilter
 from typing import Optional, Tuple
 import os
@@ -46,8 +47,8 @@ class ReplicateInpainting:
         # Optimized parameters
         self.default_params = {
             "num_inference_steps": 50,
-            "guidance_scale": 8.5,
-            "prompt_strength": 1.0,
+            "guidance_scale": 11.0,  # Higher guidance = stronger adherence to "empty room" prompt
+            "prompt_strength": 1.0,  # Max = start from pure noise, fully replace content
         }
 
         # Max dimension gửi lên Replicate - SD Inpainting tối ưu ở 512/768
@@ -56,26 +57,33 @@ class ReplicateInpainting:
         # Mask dilation mặc định (px) - mở rộng mask để phủ viền đối tượng
         self.default_mask_padding = 15
     
-        # Prompt tập trung vào sự liền mạch, bề mặt và bối cảnh chung (Không gán cứng Tường/Sàn)
+        # Prompt tập trung vào việc XÓA ĐỐI TƯỢNG và tạo bề mặt liền mạch
         self.default_prompt = (
-            "empty space, seamless background texture, continuous surface, "
-            "perfect blend with surrounding environment, natural lighting, "
-            "photorealistic interior, 8k resolution, architectural photography"
+            "empty room, bare floor, plain wall, no furniture, no objects, "
+            "clean surface, seamless background, matching floor texture, "
+            "continuous wall pattern, natural lighting, photorealistic, 8k"
         )
         
-        # Negative Prompt bổ sung các lỗi "kinh điển" của Inpainting (bóng đổ thừa, vết cắt)
+        # Negative Prompt: liệt kê CỤ THỂ từng loại nội thất để ngăn model tái tạo
         self.default_negative_prompt = (
+            "furniture, chair, table, sofa, bed, desk, shelf, cabinet, lamp, "
+            "new furniture, replaced furniture, upgraded furniture, different chair, "
+            "object, decoration, person, people, animal, pet, "
             "leftover shadows, floating objects, ghosting, mismatched patterns, "
-            "harsh edges, cut seams, furniture, people, pets, text, watermark, "
+            "harsh edges, cut seams, text, watermark, "
             "blurry, deformed, cartoon, illustration, low quality"
         )
         
         logger.info("✅ Replicate API client initialized")
     
-    def _image_to_data_uri(self, image: Image.Image) -> str:
-        """Convert PIL Image to data URI for Replicate API"""
-        # Convert to RGB if needed
-        if image.mode != "RGB":
+    def _image_to_data_uri(self, image: Image.Image, force_rgb: bool = True) -> str:
+        """Convert PIL Image to data URI for Replicate API
+        
+        Args:
+            image: PIL Image
+            force_rgb: If True, convert to RGB. Set False for masks (keep grayscale)
+        """
+        if force_rgb and image.mode != "RGB":
             image = image.convert("RGB")
         
         # Save to bytes buffer
@@ -178,18 +186,51 @@ class ReplicateInpainting:
         start_time = time.time()
 
         try:
-            # --- Fix #1: Dilate mask để phủ viền đối tượng ---
+            # --- Step 1: Dilate mask để phủ viền đối tượng ---
             mask = mask.convert("L")
             mask_dilated = self._dilate_mask(mask, mask_padding)
 
-            # --- Fix #2: Resize về max 768px để SD inpaint tối ưu ---
+            # --- Safety check: mask coverage ---
+            mask_arr = np.array(mask_dilated)
+            coverage = float((mask_arr > 127).sum()) / mask_arr.size * 100
+            logger.info(f"  Mask coverage: {coverage:.1f}%")
+            if coverage > 65.0:
+                logger.warning(
+                    f"  ⚠️  Mask coverage {coverage:.1f}% > 65% — risk of black image! "
+                    f"Reducing prompt_strength to 0.85 to give model more context."
+                )
+                prompt_strength = min(prompt_strength, 0.85)
+            elif coverage > 50.0:
+                logger.warning(
+                    f"  ⚠️  Mask coverage {coverage:.1f}% > 50% — high coverage, "
+                    f"capping prompt_strength at 0.95."
+                )
+                prompt_strength = min(prompt_strength, 0.95)
+
+            # --- Step 2: Resize về max 768px để SD inpaint tối ưu ---
             image_proc, mask_proc, original_size = self._resize_for_inpainting(
                 image, mask_dilated, self.max_inpaint_size
             )
 
+            # --- Step 3: Không cần invert mask ---
+            # SAM output: white (255) = object cần xóa, black (0) = nền giữ lại
+            # Replicate SD Inpainting (stability-ai): white (255) = vùng INPAINT (replace), black (0) = vùng GIỮ
+            # => Convention GIỐNG SAM, KHÔNG INVERT!
+            mask_for_api = mask_proc
+            logger.info(f"  Mask kept as-is: white=object to remove (inpaint), black=background (keep)")
+
+            # --- Step 4: Debug - Lưu mask thực tế gửi lên Replicate ---
+            try:
+                debug_mask_path = settings.OUTPUTS_DIR / f"debug_mask_sent_{int(time.time())}.png"
+                mask_for_api.save(debug_mask_path)
+                logger.info(f"  🔍 Debug mask saved: {debug_mask_path}")
+            except Exception:
+                pass  # Không crash nếu lưu debug fail
+
             # Convert images to data URIs
-            image_uri = self._image_to_data_uri(image_proc)
-            mask_uri = self._image_to_data_uri(mask_proc)
+            # Image: RGB, Mask: giữ grayscale (L) để model xử lý đúng
+            image_uri = self._image_to_data_uri(image_proc, force_rgb=True)
+            mask_uri = self._image_to_data_uri(mask_for_api, force_rgb=False)
             
             # Prepare input
             input_data = {
@@ -200,6 +241,7 @@ class ReplicateInpainting:
                 "num_inference_steps": num_inference_steps,
                 "guidance_scale": guidance_scale,
                 "prompt_strength": prompt_strength,
+                "disable_safety_checker": True,  # Tắt NSFW filter - ảnh nội thất hay bị false positive
             }
             if seed is not None:
                 input_data["seed"] = seed
@@ -246,6 +288,7 @@ class ReplicateInpainting:
                 "output_size": result_image.size,
                 "processed_size": image_proc.size,
                 "mask_padding": mask_padding,
+                "mask_coverage_pct": round(coverage, 2),
                 "method": "replicate_api",
                 "model": "stability-ai/stable-diffusion-inpainting",
                 "cost_usd": 0.01,
