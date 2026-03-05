@@ -7,16 +7,17 @@ Structure:
     INPAINTING_PROMPTS  - Dùng cho object removal (Week 2)
     STYLE_PROMPTS       - Dùng cho ControlNet design generation (Week 3)
     AVAILABLE_STYLES    - Danh sách style hợp lệ cho validation
+    FURNITURE_PLACEMENT_NEGATIVE  - Negative prompt cho Option 1 (furniture placement)
 
 Usage:
     from app.core.prompts import get_style_prompts, INPAINTING_PROMPTS, AVAILABLE_STYLES
+    from app.core.prompts import get_furniture_placement_prompt
 
     # ControlNet generation
     pos, neg = get_style_prompts("modern")
 
-    # Inpainting
-    pos = INPAINTING_PROMPTS["positive"]
-    neg = INPAINTING_PROMPTS["negative"]
+    # Furniture placement
+    pos, neg = get_furniture_placement_prompt("a modern leather sofa")
 """
 
 from typing import Tuple
@@ -94,10 +95,77 @@ _STYLE_CONFIGS = {
         ),
         "additional_positive": "best quality, extremely detailed, dramatic shadows, moody lighting",
     },
+    "indochine": {
+        "display_name": "Indochine",
+        "description": "Phong cách Đông Dương: gỗ nhiệt đới, họa tiết hoa văn, ánh vàng ấm áp",
+        "positive": (
+            "indochine interior design, vietnamese colonial style, tropical wood furniture, "
+            "rattan and bamboo accents, warm golden lighting, terracotta floor tiles, "
+            "silk curtains, hand-carved wooden panels, lush indoor plants, "
+            "deep warm tones, rich textures, copper and brass details, "
+            "french colonial architecture, high ceiling, ceiling fan, "
+            "photorealistic, architectural photography, 8k"
+        ),
+        "negative": (
+            "modern, minimalist, scandinavian, industrial, cold colors, "
+            "glass and steel, white walls, concrete, plastic furniture, "
+            "person, people, text, watermark, blurry, low quality, cartoon"
+        ),
+        "additional_positive": "best quality, extremely detailed, warm atmosphere, cinematic lighting",
+    },
+    "scandinavian": {
+        "display_name": "Scandinavian",
+        "description": "Phong cách Bắc Âu: sáng, ấm, chức năng, hòa hợp với thiên nhiên",
+        "positive": (
+            "scandinavian interior design, hygge aesthetic, light oak wood floor, "
+            "white and cream walls, cozy textiles, wool throws, sheepskin rugs, "
+            "simple functional furniture, large windows, natural daylight, "
+            "potted plants, subtle warm tones, birch wood, candles, "
+            "nordic minimalism, clean lines, uncluttered, "
+            "photorealistic, architectural photography, 8k"
+        ),
+        "negative": (
+            "dark, heavy, ornate, baroque, industrial, tropical, "
+            "bright paint colors, bold patterns, too many objects, "
+            "concrete floors, exposed brick, metal furniture, "
+            "person, people, text, watermark, blurry, low quality"
+        ),
+        "additional_positive": "best quality, extremely detailed, bright airy atmosphere, soft diffused light",
+    },
 }
 
 # Public: list of valid style names
 AVAILABLE_STYLES = list(_STYLE_CONFIGS.keys())
+
+# ---------------------------------------------------------------------------
+# Furniture Placement Prompts (Option 1 - Targeted Object Placement)
+# ---------------------------------------------------------------------------
+
+FURNITURE_PLACEMENT_NEGATIVE = (
+    "distorted, deformed, unrealistic proportions, floating, shadow mismatch, "
+    "wrong perspective, blurry, low quality, cartoon, illustration, painting, "
+    "person, people, text, watermark, duplicate objects"
+)
+
+
+def get_furniture_placement_prompt(furniture_description: str) -> Tuple[str, str]:
+    """
+    Tạo prompt cho việc đặt đồ nội thất vào vị trí chọn.
+
+    Args:
+        furniture_description: Mô tả đồ nội thất (VD: "a modern leather sofa")
+
+    Returns:
+        Tuple (positive_prompt, negative_prompt)
+    """
+    furniture_description = furniture_description.strip()
+    positive = (
+        f"{furniture_description}, "
+        "photorealistic, natural lighting, matching room style, "
+        "correct perspective, proper shadows, high quality, 8k, "
+        "seamlessly integrated, interior design photography"
+    )
+    return positive, FURNITURE_PLACEMENT_NEGATIVE
 
 
 # ---------------------------------------------------------------------------

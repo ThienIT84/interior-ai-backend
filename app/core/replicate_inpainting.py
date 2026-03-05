@@ -7,6 +7,7 @@ import replicate
 import io
 import time
 import logging
+import numpy as np
 from PIL import Image, ImageFilter
 from typing import Optional, Tuple
 import os
@@ -189,6 +190,23 @@ class ReplicateInpainting:
             mask = mask.convert("L")
             mask_dilated = self._dilate_mask(mask, mask_padding)
 
+            # --- Safety check: mask coverage ---
+            mask_arr = np.array(mask_dilated)
+            coverage = float((mask_arr > 127).sum()) / mask_arr.size * 100
+            logger.info(f"  Mask coverage: {coverage:.1f}%")
+            if coverage > 65.0:
+                logger.warning(
+                    f"  ⚠️  Mask coverage {coverage:.1f}% > 65% — risk of black image! "
+                    f"Reducing prompt_strength to 0.85 to give model more context."
+                )
+                prompt_strength = min(prompt_strength, 0.85)
+            elif coverage > 50.0:
+                logger.warning(
+                    f"  ⚠️  Mask coverage {coverage:.1f}% > 50% — high coverage, "
+                    f"capping prompt_strength at 0.95."
+                )
+                prompt_strength = min(prompt_strength, 0.95)
+
             # --- Step 2: Resize về max 768px để SD inpaint tối ưu ---
             image_proc, mask_proc, original_size = self._resize_for_inpainting(
                 image, mask_dilated, self.max_inpaint_size
@@ -270,6 +288,7 @@ class ReplicateInpainting:
                 "output_size": result_image.size,
                 "processed_size": image_proc.size,
                 "mask_padding": mask_padding,
+                "mask_coverage_pct": round(coverage, 2),
                 "method": "replicate_api",
                 "model": "stability-ai/stable-diffusion-inpainting",
                 "cost_usd": 0.01,

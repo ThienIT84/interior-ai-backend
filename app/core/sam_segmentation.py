@@ -134,6 +134,88 @@ class SAMSegmentation:
         
         return masks[best_idx]
     
+    def segment_multiple_objects(
+        self,
+        point_coords: List[Tuple[int, int]],
+        point_labels: List[int],
+    ) -> Tuple[np.ndarray, float]:
+        """
+        Segment mỗi foreground point RIÊNG BIỆT rồi OR-combine tất cả masks.
+
+        Dùng khi user chọn nhiều vật thể khác nhau (3 điểm ở 3 vị trí rải rác).
+        SAM không được thiết kế để segment nhiều object rời nhau trong 1 call —
+        khi đó nó tạo mask khổng lồ bao quanh tất cả điểm, gây lỗi black image
+        khi inpaint.
+
+        Args:
+            point_coords: List (x, y) của các điểm
+            point_labels: List nhãn (1=foreground, 0=background)
+
+        Returns:
+            Tuple (combined_mask, avg_confidence)
+            - combined_mask: mask OR của tất cả object (H, W) bool
+            - avg_confidence: trung bình confidence score
+        """
+        if self._current_image is None:
+            raise ValueError("No image set. Call set_image() first.")
+
+        foreground_pts = [
+            (coord, label)
+            for coord, label in zip(point_coords, point_labels)
+            if label == 1
+        ]
+        background_pts = [
+            (coord, label)
+            for coord, label in zip(point_coords, point_labels)
+            if label == 0
+        ]
+
+        logger.info(
+            f"🎯 Multi-object segmentation: {len(foreground_pts)} foreground points "
+            f"+ {len(background_pts)} background hints"
+        )
+
+        combined_mask: Optional[np.ndarray] = None
+        confidences: List[float] = []
+
+        for idx, (fg_coord, _) in enumerate(foreground_pts):
+            # Segment riêng từng foreground point + giữ background hints làm context
+            seg_coords = [fg_coord] + [bc for bc, _ in background_pts]
+            seg_labels = [1] + [0] * len(background_pts)
+
+            masks, scores, _ = self.predictor.predict(
+                point_coords=np.array(seg_coords),
+                point_labels=np.array(seg_labels),
+                multimask_output=True,
+            )
+
+            best_mask = self.get_best_mask(masks, scores, prefer_larger=True)
+            best_score = float(np.max(scores))
+            confidences.append(best_score)
+
+            area_pct = best_mask.sum() / best_mask.size * 100
+            logger.info(
+                f"   Object {idx + 1}/{len(foreground_pts)}: "
+                f"score={best_score:.3f}, area={area_pct:.1f}%"
+            )
+
+            # OR-combine
+            if combined_mask is None:
+                combined_mask = best_mask.copy()
+            else:
+                combined_mask = combined_mask | best_mask
+
+        if combined_mask is None:
+            raise ValueError("No foreground points provided.")
+
+        total_area = combined_mask.sum() / combined_mask.size * 100
+        avg_conf = float(np.mean(confidences))
+        logger.info(
+            f"✅ Combined mask: total_area={total_area:.1f}% | avg_confidence={avg_conf:.3f}"
+        )
+
+        return combined_mask, avg_conf
+
     def get_all_masks_with_scores(
         self,
         masks: np.ndarray,

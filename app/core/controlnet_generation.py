@@ -77,7 +77,7 @@ class ControlNetGeneration:
     # Replicate model - pinned version de tranh breaking changes
     MODEL_VERSION = (
         "jagilley/controlnet-canny:"
-        "aff48af9c68d162388d230a2ab003f68d2638d88d7e5c72c23a2d2a7d73e9c48"
+        "aff48af9c68d162388d230a2ab003f68d2638d88307bdaf1c2f1ac95079c9613"
     )
 
     # Resolution toi uu cho ControlNet SD1.5 (512 hoac 768)
@@ -243,9 +243,10 @@ class ControlNetGeneration:
 
             output = replicate.run(self.MODEL_VERSION, input=input_data)
 
-            # Output la list URL hoac FileOutput objects
+            # Output la list 2 anh: [0] = edge map (canny viz), [1] = generated design
+            # Phai lay output[-1] (anh cuoi cung = generated result)
             if isinstance(output, list) and len(output) > 0:
-                result_url = str(output[0])
+                result_url = str(output[-1])
             else:
                 result_url = str(output)
 

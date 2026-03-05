@@ -144,19 +144,28 @@ async def segment_with_points_json(
         sam_seg = SAMSegmentation(model_manager.sam_predictor)
         sam_seg.set_image(image_np)
         
-        # Perform segmentation
-        masks, scores, logits = sam_seg.segment_by_points(point_coords, point_labels)
-        
-        # Get best mask (prefer larger masks for furniture)
-        best_mask = sam_seg.get_best_mask(masks, scores, prefer_larger=True)
-        best_score = float(np.max(scores))
-        
-        # Get all masks info for debugging
-        all_masks_info = sam_seg.get_all_masks_with_scores(masks, scores)
-        
-        logger.info(f"📊 Generated {len(masks)} masks:")
-        for info in all_masks_info:
-            logger.info(f"   Mask {info['index']}: score={info['score']:.3f}, area={info['area_percentage']:.1f}%")
+        # --- Multi-object fix ---
+        # Khi có ≥ 2 foreground points rải rác, segment từng object riêng rồi OR-combine.
+        # Gộp tất cả vào 1 SAM call → mask khổng lồ → black image khi inpaint.
+        n_foreground = sum(1 for l in point_labels if l == 1)
+
+        if n_foreground >= 2:
+            logger.info(
+                f"🔀 {n_foreground} foreground points → using multi-object segmentation "
+                f"(segment each separately then merge)"
+            )
+            best_mask, best_score = sam_seg.segment_multiple_objects(point_coords, point_labels)
+            all_masks_info = []  # không có "multimask" info khi dùng multi-object mode
+        else:
+            # Single foreground point: dùng SAM multimask_output=True như trước
+            masks, scores, logits = sam_seg.segment_by_points(point_coords, point_labels)
+            best_mask = sam_seg.get_best_mask(masks, scores, prefer_larger=True)
+            best_score = float(np.max(scores))
+            all_masks_info = sam_seg.get_all_masks_with_scores(masks, scores)
+
+            logger.info(f"📊 Generated {len(masks)} masks:")
+            for info in all_masks_info:
+                logger.info(f"   Mask {info['index']}: score={info['score']:.3f}, area={info['area_percentage']:.1f}%")
         
         # Save mask with metadata
         mask_id = str(uuid.uuid4())
