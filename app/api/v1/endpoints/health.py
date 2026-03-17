@@ -26,11 +26,20 @@ async def health_check(
     Health check endpoint
     Returns system status and loaded models
     """
+    default_backend = settings.SEGMENTATION_BACKEND.strip().lower()
+    default_model = (
+        settings.SAM3_REPLICATE_MODEL
+        if default_backend == "sam3_replicate"
+        else f"local_sam:vit_b:{settings.SAM_CHECKPOINT}"
+    )
+
     return {
         "status": "healthy",
         "device": model_manager.device,
+        "segmentation_backend": default_backend,
+        "segmentation_model": default_model,
         "models": {
-            "sam": "loaded" if model_manager.sam_predictor else "not loaded"
+            "sam": "loaded" if model_manager.is_sam_loaded else "not loaded"
         },
         "message": "Hệ thống AI Interior đã sẵn sàng!"
     }
