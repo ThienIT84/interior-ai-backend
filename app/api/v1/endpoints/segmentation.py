@@ -11,6 +11,7 @@ from PIL import Image
 
 from app.dependencies import get_model_manager, ModelManager
 from app.core.sam_segmentation import SAMSegmentation
+from app.core.sam3_replicate_segmentation import get_sam3_replicate_service
 from app.utils.image_processing import load_image_from_bytes
 from app.utils.logger import logger
 from app.utils.mask_storage import MaskStorage
@@ -18,6 +19,86 @@ from app.config import settings
 from app.models.segmentation import SegmentationRequest
 
 router = APIRouter()
+
+
+def _is_sam3_backend() -> bool:
+    return settings.SEGMENTATION_BACKEND.strip().lower() == "sam3_replicate"
+
+
+def _normalize_backend_name(backend: str | None) -> str:
+    if not backend:
+        return settings.SEGMENTATION_BACKEND.strip().lower()
+
+    normalized = backend.strip().lower()
+    if normalized not in {"local", "sam3_replicate"}:
+        raise HTTPException(
+            status_code=400,
+            detail='Invalid segmentation_backend. Use "local" or "sam3_replicate".',
+        )
+    return normalized
+
+
+def _resolve_effective_backend(requested_backend: str | None) -> str:
+    return _normalize_backend_name(requested_backend)
+
+
+def _get_model_name_for_backend(backend: str) -> str:
+    if backend == "sam3_replicate":
+        return settings.SAM3_REPLICATE_MODEL
+    return f"local_sam:vit_b:{settings.SAM_CHECKPOINT}"
+
+
+@router.get("/debug/backend")
+async def get_segmentation_backend_debug(
+    model_manager: ModelManager = Depends(get_model_manager)
+):
+    """Debug endpoint to inspect active segmentation backend and model selection."""
+    default_backend = _normalize_backend_name(settings.SEGMENTATION_BACKEND)
+
+    return JSONResponse(content={
+        "status": "success",
+        "segmentation": {
+            "default_backend": default_backend,
+            "default_model": _get_model_name_for_backend(default_backend),
+            "fallback_to_local": settings.SEGMENTATION_FALLBACK_TO_LOCAL,
+            "supported_backends": ["local", "sam3_replicate"],
+            "local_sam_loaded": model_manager.is_sam_loaded,
+            "local_sam_checkpoint": settings.SAM_CHECKPOINT,
+            "sam3_replicate_model": settings.SAM3_REPLICATE_MODEL,
+            "per_request_override_supported": True,
+        }
+    })
+
+
+def _segment_points_local(
+    image_np: np.ndarray,
+    point_coords: list[tuple[int, int]],
+    point_labels: list[int],
+    model_manager: ModelManager,
+):
+    """Local SAM point segmentation flow."""
+    sam_seg = SAMSegmentation(model_manager.sam_predictor)
+    sam_seg.set_image(image_np)
+
+    n_foreground = sum(1 for l in point_labels if l == 1)
+    if n_foreground >= 2:
+        logger.info(
+            f"🔀 {n_foreground} foreground points → using multi-object segmentation "
+            f"(segment each separately then merge)"
+        )
+        best_mask, best_score = sam_seg.segment_multiple_objects(point_coords, point_labels)
+        all_masks_info = []
+    else:
+        masks, scores, _ = sam_seg.segment_by_points(point_coords, point_labels)
+        best_mask = sam_seg.get_best_mask(masks, scores, prefer_larger=True)
+        best_score = float(np.max(scores))
+        all_masks_info = sam_seg.get_all_masks_with_scores(masks, scores)
+
+        logger.info(f"📊 Generated {len(masks)} masks:")
+        for info in all_masks_info:
+            logger.info(f"   Mask {info['index']}: score={info['score']:.3f}, area={info['area_percentage']:.1f}%")
+
+    return best_mask, best_score, all_masks_info
 
 
 @router.post("/upload")
@@ -72,9 +153,11 @@ async def segment_image(
         contents = await file.read()
         image_pil, image_np = load_image_from_bytes(contents)
         
-        # Initialize SAM segmentation
-        sam_seg = SAMSegmentation(model_manager.sam_predictor)
-        sam_seg.set_image(image_np)
+        backend_used = _resolve_effective_backend(None)
+        if backend_used == "local":
+            # Warm local SAM for faster first point-segmentation call
+            sam_seg = SAMSegmentation(model_manager.sam_predictor)
+            sam_seg.set_image(image_np)
         
         # Save input image
         image_id = str(uuid.uuid4())
@@ -93,6 +176,8 @@ async def segment_image(
             "image_id": image_id,
             "image_shape": {"width": w, "height": h},
             "ready_for_segmentation": True,
+            "segmentation_backend": backend_used,
+            "segmentation_model": _get_model_name_for_backend(backend_used),
             "note": "Gửi point hoặc box prompts để thực hiện segmentation"
         })
         
@@ -128,8 +213,11 @@ async def segment_with_points_json(
         image_id = request.image_id
         point_coords = [(p.x, p.y) for p in request.points]
         point_labels = [p.label for p in request.points]
-        
-        logger.info(f"🎯 Segmenting image {image_id} with {len(point_coords)} points")
+        requested_backend = _resolve_effective_backend(request.segmentation_backend)
+        text_prompt = (request.text_prompt or "").strip() or "object"
+
+        logger.info(f"🎯 Segmenting image {image_id} with {len(point_coords)} points"
+                    + (f" | text='{text_prompt}'" if requested_backend == "sam3_replicate" else ""))
         
         # Load image
         input_files = list(settings.INPUTS_DIR.glob(f"*_{image_id}.jpg"))
@@ -140,37 +228,50 @@ async def segment_with_points_json(
         image_pil = Image.open(image_path)
         image_np = np.array(image_pil)
         
-        # Initialize SAM and set image
-        sam_seg = SAMSegmentation(model_manager.sam_predictor)
-        sam_seg.set_image(image_np)
-        
-        # --- Multi-object fix ---
-        # Khi có ≥ 2 foreground points rải rác, segment từng object riêng rồi OR-combine.
-        # Gộp tất cả vào 1 SAM call → mask khổng lồ → black image khi inpaint.
-        n_foreground = sum(1 for l in point_labels if l == 1)
+        backend_used = requested_backend
+        all_masks_info = []
 
-        if n_foreground >= 2:
-            logger.info(
-                f"🔀 {n_foreground} foreground points → using multi-object segmentation "
-                f"(segment each separately then merge)"
-            )
-            best_mask, best_score = sam_seg.segment_multiple_objects(point_coords, point_labels)
-            all_masks_info = []  # không có "multimask" info khi dùng multi-object mode
+        if requested_backend == "sam3_replicate":
+            try:
+                sam3_service = get_sam3_replicate_service()
+                best_mask, best_score, _ = sam3_service.segment_by_points(
+                    image_path=image_path,
+                    point_coords=point_coords,
+                    point_labels=point_labels,
+                    text_prompt=text_prompt,
+                )
+            except Exception as sam3_error:
+                if settings.SEGMENTATION_FALLBACK_TO_LOCAL:
+                    logger.warning(
+                        "⚠️ SAM3 Replicate failed, falling back to local SAM: "
+                        f"{sam3_error}"
+                    )
+                    best_mask, best_score, all_masks_info = _segment_points_local(
+                        image_np=image_np,
+                        point_coords=point_coords,
+                        point_labels=point_labels,
+                        model_manager=model_manager,
+                    )
+                    backend_used = "local_fallback"
+                else:
+                    raise RuntimeError(f"SAM3 Replicate segmentation failed: {sam3_error}")
         else:
-            # Single foreground point: dùng SAM multimask_output=True như trước
-            masks, scores, logits = sam_seg.segment_by_points(point_coords, point_labels)
-            best_mask = sam_seg.get_best_mask(masks, scores, prefer_larger=True)
-            best_score = float(np.max(scores))
-            all_masks_info = sam_seg.get_all_masks_with_scores(masks, scores)
-
-            logger.info(f"📊 Generated {len(masks)} masks:")
-            for info in all_masks_info:
-                logger.info(f"   Mask {info['index']}: score={info['score']:.3f}, area={info['area_percentage']:.1f}%")
+            best_mask, best_score, all_masks_info = _segment_points_local(
+                image_np=image_np,
+                point_coords=point_coords,
+                point_labels=point_labels,
+                model_manager=model_manager,
+            )
         
         # Save mask with metadata
         mask_id = str(uuid.uuid4())
         metadata = {
             "confidence": best_score,
+            "segmentation_backend": backend_used,
+            "segmentation_model": _get_model_name_for_backend(
+                "local" if backend_used == "local_fallback" else backend_used
+            ),
+            "text_prompt": text_prompt if requested_backend == "sam3_replicate" else None,
             "num_points": len(point_coords),
             "points": [{"x": int(x), "y": int(y), "label": int(l)} 
                       for (x, y), l in zip(point_coords, point_labels)],
@@ -205,6 +306,8 @@ async def segment_with_points_json(
             "mask_url": mask_url,
             "image_shape": {"width": w, "height": h},
             "confidence": best_score,
+            "segmentation_backend": backend_used,
+            "segmentation_model": metadata["segmentation_model"],
             "num_points": len(point_coords),
             "mask_area_percentage": round(metadata["mask_area_percentage"], 2),
             "all_masks": metadata["all_masks"]
@@ -253,7 +356,16 @@ async def segment_with_box(
         image_pil = Image.open(image_path)
         image_np = np.array(image_pil)
         
-        # Initialize SAM and set image
+        # SAM3 endpoint is currently wired for point prompts.
+        # Box mode uses local SAM and can still be reached when fallback is enabled.
+        if _resolve_effective_backend(None) == "sam3_replicate" and not settings.SEGMENTATION_FALLBACK_TO_LOCAL:
+            raise HTTPException(
+                status_code=400,
+                detail="segment-box is only available with local SAM currently. "
+                       "Set SEGMENTATION_FALLBACK_TO_LOCAL=true or switch SEGMENTATION_BACKEND=local",
+            )
+
+        # Initialize local SAM and set image
         sam_seg = SAMSegmentation(model_manager.sam_predictor)
         sam_seg.set_image(image_np)
         
@@ -271,6 +383,7 @@ async def segment_with_box(
         mask_id = str(uuid.uuid4())
         metadata = {
             "confidence": best_score,
+            "segmentation_backend": "local",
             "segmentation_type": "box",
             "box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
             "mask_area_percentage": float((best_mask.sum() / best_mask.size) * 100)
@@ -295,6 +408,7 @@ async def segment_with_box(
             "mask_url": mask_url,
             "image_shape": {"width": w, "height": h},
             "confidence": best_score,
+            "segmentation_backend": "local",
             "mask_area_percentage": round(metadata["mask_area_percentage"], 2),
             "box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
         })

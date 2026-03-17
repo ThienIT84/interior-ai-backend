@@ -21,9 +21,17 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting AI Interior Design Backend...")
     ensure_directories()
     
-    # Initialize models (this will load SAM)
+    # Initialize runtime manager (lazy-loads local SAM only when needed)
     model_manager = get_model_manager()
-    logger.info(f"✅ Models loaded on device: {model_manager.device}")
+    logger.info(f"✅ Runtime ready on device: {model_manager.device}")
+
+    if settings.SEGMENTATION_BACKEND.strip().lower() == "local":
+        _ = model_manager.sam_predictor
+        logger.info("✅ Local SAM preloaded (SEGMENTATION_BACKEND=local)")
+    else:
+        logger.info(
+            "☁️ Segmentation backend set to SAM3 Replicate; local SAM will only load if fallback is used"
+        )
     
     # Note: Stable Diffusion models are now lazy-loaded by hybrid inpainting service
     # - Replicate API: No local model needed

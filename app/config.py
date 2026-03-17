@@ -36,12 +36,32 @@ class Settings(BaseSettings):
     SAM_CHECKPOINT: str = "sam_vit_b_01ec64.pth"
     SAM_CHECKPOINT_PATH: Optional[str] = None  # Full path from .env (optional)
     DEVICE: str = "cuda"  # Will be auto-detected
+    # Segmentation backend: "local" (SAM on this machine) or "sam3_replicate" (cloud)
+    SEGMENTATION_BACKEND: str = "local"
+    # Fallback to local SAM when SAM3 Replicate fails
+    SEGMENTATION_FALLBACK_TO_LOCAL: bool = True
+    # Pinned Replicate model version for SAM3
+    SAM3_REPLICATE_MODEL: str = "mattsays/sam3-image:d73db077226443ba4fafd34e233b3626b552eac2a433f90c7c32a9ac89bd9e72"
     
     # External API Keys (for Replicate, HuggingFace)
     REPLICATE_API_TOKEN: Optional[str] = None
     HUGGINGFACE_API_TOKEN: Optional[str] = None  # For Inference API
     HUGGINGFACE_API_KEY: Optional[str] = None  # Legacy name
     
+    # ── Remove-object Pipeline Settings ──────────────────────────────────────
+    # Primary method for object removal: "lama" | "replicate_sd" | "local_sd" | "auto"
+    REMOVE_OBJECT_METHOD: str = "lama"
+    # Fallback when primary fails
+    REMOVE_OBJECT_FALLBACK: str = "replicate_sd"
+    # Mask coverage gate: reject if fraction outside (0-1 float, not %)
+    MASK_COVERAGE_MIN: float = 0.003   # 0.3%
+    MASK_COVERAGE_MAX: float = 0.45    # 45%
+    # Mask preprocessing defaults
+    MASK_DILATION_DEFAULT: int = 15    # pixels
+    MASK_FEATHER_DEFAULT: int = 4      # pixels
+    # Artifact score threshold (0-1 scale) above which pass-2 repair is triggered
+    ARTIFACT_SCORE_THRESHOLD: float = 0.15
+
     # Processing Settings
     MAX_IMAGE_SIZE: int = 2048  # Max dimension for processing
     JPEG_QUALITY: int = 90

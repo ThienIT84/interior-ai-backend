@@ -12,21 +12,23 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-InpaintingMethod = Literal["local", "replicate", "auto"]
+# method="lama"        → allenhooo/lama via Replicate (~3s, $0.00057) — dùng cho remove-object
+# method="replicate"   → stability-ai/sd-inpainting via Replicate (~10s, $0.01)
+# method="local"       → local GTX 1650 (~15 phút, free)
+# method="auto"        → lama nếu có token, rồi replicate, rồi local
+InpaintingMethod = Literal["lama", "replicate", "local", "auto"]
 
 
 class InpaintingService:
     """
-    Unified inpainting service with multiple backends
-    
+    Unified inpainting service with multiple backends.
+
     Backends:
-    - Local: GTX 1650 (15 min, FREE, always available)
-    - Replicate: Cloud API (10 sec, $0.01/image, requires token)
-    
-    Strategy:
-    - Development: Use local (free, no limits)
-    - Demo: Use Replicate (fast, impressive)
-    - Production: Configurable via env var
+    - lama:      allenhooo/lama via Replicate (~3s, $0.00057) -- BEST for object removal
+    - replicate: stability-ai/sd-inpainting via Replicate (~10s, $0.01)
+    - local:     GTX 1650 diffusion (~15 min, FREE)
+
+    Auto fallback chain: lama -> replicate -> local
     """
     
     def __init__(self, default_method: InpaintingMethod = "auto"):
@@ -40,20 +42,24 @@ class InpaintingService:
                 - "auto": Use Replicate if available, fallback to local
         """
         self.default_method = default_method
-        
+
         # Check available backends
         self.local_available = True  # Always available
-        # Dùng settings thay vì os.getenv vì pydantic_settings không populate os.environ
+        # Dùng settings vì pydantic_settings không tự populate os.environ
         self.replicate_available = bool(settings.REPLICATE_API_TOKEN)
-        
+        # LaMa cũng cần Replicate token
+        self.lama_available = self.replicate_available
+
         logger.info("🔧 Inpainting Service initialized")
         logger.info(f"   Default method: {default_method}")
-        logger.info(f"   Local GPU: {'✅ Available' if self.local_available else '❌ Not available'}")
-        logger.info(f"   Replicate API: {'✅ Available' if self.replicate_available else '❌ Token not set'}")
-        
+        logger.info(f"   LaMa (Replicate): {'✅ Available' if self.lama_available else '❌ Token not set'}")
+        logger.info(f"   SD Replicate:     {'✅ Available' if self.replicate_available else '❌ Token not set'}")
+        logger.info(f"   Local GPU:        ✅ Available")
+
         # Lazy load backends
         self._local_service = None
         self._replicate_service = None
+        self._lama_service = None
     
     def inpaint(
         self,
@@ -86,33 +92,79 @@ class InpaintingService:
         logger.info(f"   Replicate available: {self.replicate_available}")
         
         if method == "auto":
-            # Auto-select: Prefer Replicate if available
-            if self.replicate_available:
+            # Auto-select: lama > replicate > local
+            if self.lama_available:
+                method = "lama"
+                logger.info("🤖 Auto-selected: LaMa (fast + cheap object removal)")
+            elif self.replicate_available:
                 method = "replicate"
-                logger.info("🤖 Auto-selected: Replicate API (fast)")
+                logger.info("🤖 Auto-selected: SD Replicate")
             else:
                 method = "local"
-                logger.info("🤖 Auto-selected: Local GPU (Replicate token not set)")
-        
-        # Execute with selected method
+                logger.info("🤖 Auto-selected: Local GPU")
+
+        # Execute with fallback chain
         try:
-            if method == "replicate":
+            if method == "lama":
+                return self._inpaint_lama(image, mask, **kwargs)
+            elif method == "replicate":
                 return self._inpaint_replicate(image, mask, prompt, negative_prompt, **kwargs)
             elif method == "local":
                 return self._inpaint_local(image, mask, prompt, negative_prompt, **kwargs)
             else:
                 raise ValueError(f"Unknown method: {method}")
-        
+
         except Exception as e:
             logger.error(f"❌ Inpainting failed with {method}: {e}")
-            
-            # Auto-fallback if using "auto" mode
-            if self.default_method == "auto" and method == "replicate":
-                logger.warning("⚠️  Falling back to local GPU...")
-                return self._inpaint_local(image, mask, prompt, negative_prompt, **kwargs)
-            else:
-                raise
+
+            # Fallback chain
+            if method == "lama" and self.replicate_available:
+                logger.warning("⚠️  LaMa failed → falling back to SD Replicate...")
+                try:
+                    result, meta = self._inpaint_replicate(image, mask, prompt, negative_prompt, **kwargs)
+                    meta["fallback_used"] = "replicate_sd"
+                    return result, meta
+                except Exception as e2:
+                    logger.error(f"❌ SD Replicate also failed: {e2}")
+
+            if method in ("lama", "replicate"):
+                logger.warning("⚠️  Cloud failed → falling back to Local GPU...")
+                result, meta = self._inpaint_local(image, mask, prompt, negative_prompt, **kwargs)
+                meta["fallback_used"] = "local_gpu"
+                return result, meta
+
+            raise
     
+    def _inpaint_lama(
+        self,
+        image: Image.Image,
+        mask: Image.Image,
+        **kwargs,
+    ) -> Tuple[Image.Image, dict]:
+        """Remove object using LaMa — fills with surrounding texture."""
+        logger.info("🦙 Using LaMa inpainting (fast + cheap, ~3s)")
+
+        if not self.lama_available:
+            raise ValueError(
+                "Replicate API token not set. "
+                "LaMa requires REPLICATE_API_TOKEN in .env"
+            )
+
+        if self._lama_service is None:
+            from app.core.lama_inpainting import get_lama_inpainting_service
+            self._lama_service = get_lama_inpainting_service()
+
+        mask_padding = kwargs.get("mask_padding", None)
+        result, metadata = self._lama_service.remove_object(
+            image=image,
+            mask=mask,
+            mask_padding=mask_padding,
+        )
+
+        metadata["method"] = "lama"
+        metadata["fallback_used"] = None
+        return result, metadata
+
     def _inpaint_local(
         self,
         image: Image.Image,
