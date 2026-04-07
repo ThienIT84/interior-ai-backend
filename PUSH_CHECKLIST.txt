@@ -1,0 +1,151 @@
+═══════════════════════════════════════════════════════════
+  🚀 GIT PUSH CHECKLIST - AI INTERIOR DESIGN PROJECT
+═══════════════════════════════════════════════════════════
+
+📋 PRE-PUSH CHECKLIST
+═══════════════════════════════════════════════════════════
+
+Backend:
+  [ ] Backend server chạy được (test với curl/Postman)
+  [ ] SAM segmentation hoạt động
+  [ ] Inpainting hoạt động (đã test ít nhất 1 ảnh)
+  [ ] Không có debug prints/comments
+  [ ] File .env KHÔNG được commit
+  [ ] Model weights KHÔNG được commit (chỉ .gitkeep)
+  [ ] Test data KHÔNG được commit (chỉ .gitkeep)
+
+Frontend:
+  [ ] Flutter app build được
+  [ ] Kết nối được backend
+  [ ] Upload ảnh hoạt động
+  [ ] Segmentation UI hoạt động
+  [ ] Inpainting progress hoạt động
+  [ ] Không có hardcoded IPs (dùng config.dart)
+
+Documentation:
+  [ ] README.md đã update
+  [ ] SETUP_GUIDE.md đầy đủ
+  [ ] API endpoints có trong docs
+  [ ] Commit message rõ ràng
+
+Git:
+  [ ] Đã clean __pycache__
+  [ ] Đã clean Flutter build/
+  [ ] .gitignore đầy đủ
+  [ ] Không có file >100MB
+
+═══════════════════════════════════════════════════════════
+  🎯 QUICK COMMANDS
+═══════════════════════════════════════════════════════════
+
+Option 1: Automatic (Recommended)
+─────────────────────────────────
+cd ~/interior_project
+./QUICK_PUSH.sh
+
+
+Option 2: Interactive
+─────────────────────────────────
+cd ~/interior_project
+./push_to_git.sh
+
+
+Option 3: Manual
+─────────────────────────────────
+cd ~/interior_project
+
+# Clean
+find backend -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+find backend -type f -name "*.pyc" -delete
+
+# Check
+git status
+
+# Stage
+git add .
+git add -u
+
+# Commit
+git commit -m "feat: implement SAM segmentation + SD inpainting (Week 2 complete)"
+
+# Push
+git push origin main
+
+
+═══════════════════════════════════════════════════════════
+  ⚠️  IMPORTANT WARNINGS
+═══════════════════════════════════════════════════════════
+
+DO NOT COMMIT:
+  ❌ backend/weights/*.pth (375MB - too large!)
+  ❌ backend/.env (contains API keys)
+  ❌ backend/data/inputs/* (test images)
+  ❌ backend/data/outputs/* (test results)
+  ❌ backend/data/masks/* (test masks)
+  ❌ frontend/build/* (Flutter build artifacts)
+
+MUST COMMIT:
+  ✅ backend/app/* (all Python code)
+  ✅ backend/requirements.txt
+  ✅ backend/README.md
+  ✅ backend/.gitignore
+  ✅ backend/.env.example
+  ✅ frontend/lib/* (all Dart code)
+  ✅ frontend/pubspec.yaml
+  ✅ frontend/README.md
+
+
+═══════════════════════════════════════════════════════════
+  📊 POST-PUSH VERIFICATION
+═══════════════════════════════════════════════════════════
+
+After pushing, check:
+
+1. GitHub/GitLab web interface:
+   [ ] No .env file visible
+   [ ] No weights/*.pth files
+   [ ] Only .gitkeep in data folders
+   [ ] README renders correctly
+
+2. Clone test (optional):
+   cd /tmp
+   git clone [your-repo-url] test-clone
+   cd test-clone
+   # Verify structure looks correct
+
+3. Create tag:
+   git tag -a v0.2-week2 -m "Week 2: SAM + Inpainting"
+   git push origin v0.2-week2
+
+
+═══════════════════════════════════════════════════════════
+  🎉 DONE!
+═══════════════════════════════════════════════════════════
+
+Next steps:
+  1. ✅ Code pushed to git
+  2. 📝 Update project board/issues
+  3. 💾 Backup model weights separately (Google Drive)
+  4. 🌿 Create branch for Week 3:
+     git checkout -b feature/week3-controlnet
+  5. 📧 Notify team/advisor (if applicable)
+
+
+═══════════════════════════════════════════════════════════
+  📞 TROUBLESHOOTING
+═══════════════════════════════════════════════════════════
+
+Error: "file too large"
+→ git rm --cached backend/weights/*.pth
+→ git commit -m "fix: remove large files"
+
+Error: "rejected - non-fast-forward"
+→ git pull origin main --rebase
+→ git push origin main
+
+Error: ".env committed by mistake"
+→ git rm --cached backend/.env
+→ git commit -m "fix: remove .env"
+→ git push origin main
+
+═══════════════════════════════════════════════════════════

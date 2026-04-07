@@ -1,0 +1,17 @@
+services:
+  redis:
+    image: redis:latest
+    volumes:
+      - redis_data:/data # Persistence: Restart máy không mất Job
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+
+volumes:
+  redis_data:

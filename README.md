@@ -1,226 +1,148 @@
-# AI Interior Design - Backend
+# AI Interior Design - Computer Vision Project
 
-Backend API cho hệ thống AI Interior Design sử dụng FastAPI, SAM, và Stable Diffusion.
+Hệ thống hỗ trợ thiết kế và tái cấu trúc nội thất sử dụng Generative AI và AR.
 
-## 🎯 Features
+## 📋 Mục tiêu Dự án
 
-- ✅ **SAM Segmentation**: Interactive point-based object segmentation
-- ✅ **Stable Diffusion Inpainting**: Remove objects and generate empty rooms
-- ⏳ **ControlNet Generation**: Generate new interior designs (Week 3)
-- ⏳ **AR Support**: 3D visualization endpoints (Week 4)
+Xây dựng ứng dụng cho phép:
+1. **Xóa bỏ** vật thể nội thất cũ bằng AI (SAM + Stable Diffusion Inpainting)
+2. **Tạo sinh** thiết kế mới với ControlNet
+3. **Trực quan hóa** trong AR với tỉ lệ thực tế
 
-## 📊 Performance
+## 🏗️ Kiến trúc Hệ thống
 
-| Component | Latency | VRAM | Cost |
-|-----------|---------|------|------|
-| SAM Segmentation | 0.2-0.5s | 1.5-2GB | $0 |
-| SD Inpainting | 13-15 min | 3.5-4GB | $0 |
+```
+┌─────────────────┐
+│  Flutter App    │  (Mobile - Android/iOS)
+│  - Camera       │
+│  - AR View      │
+└────────┬────────┘
+         │ HTTP/REST
+         ▼
+┌─────────────────┐
+│  FastAPI Server │  (Backend - Python)
+│  - SAM          │  (WSL Ubuntu + GTX 1650)
+│  - Diffusion    │
+│  - ControlNet   │
+└─────────────────┘
+```
 
-**Hardware**: GTX 1650 4GB VRAM
+## 📁 Cấu trúc Dự án
+
+```
+interior_project/
+├── backend/              # Python FastAPI Backend
+│   ├── app/             # Application code
+│   ├── weights/         # Model checkpoints
+│   ├── data/            # Data storage
+│   └── notebooks/       # Experiments
+│
+├── frontend/            # Flutter Mobile App
+│   └── lib/            # Dart code
+│
+├── docs/               # Documentation
+├── scripts/            # Utility scripts
+└── .kiro/             # Kiro AI configuration
+```
 
 ## 🚀 Quick Start
 
-### 1. Activate Environment
-```bash
-~/miniconda3/envs/interior_ai/bin/python
-```
-
-### 2. Start Server
-```bash
-cd ~/interior_project/backend
-~/miniconda3/envs/interior_ai/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 3. Access API
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
-## 📁 Project Structure
-
-```
-backend/
-├── app/                          # Main application
-│   ├── api/v1/endpoints/         # API routes
-│   │   ├── segmentation.py       # ✅ SAM endpoints
-│   │   ├── inpainting.py         # ✅ Inpainting endpoints
-│   │   └── health.py             # ✅ Health check
-│   ├── core/                     # Business logic
-│   │   ├── sam_segmentation.py   # ✅ SAM wrapper
-│   │   └── diffusion_inpainting.py # ✅ SD wrapper
-│   ├── config.py                 # Configuration
-│   └── main.py                   # FastAPI app
-├── data/                         # Data storage
-│   ├── inputs/                   # Uploaded images
-│   ├── masks/                    # Generated masks
-│   └── outputs/                  # Inpainting results
-├── weights/                      # Model checkpoints
-│   └── sam_vit_b_01ec64.pth     # SAM model
-└── Test scripts & Documentation
-```
-
-## 🔧 Setup
-
-### Prerequisites
-- Python 3.8+
-- CUDA-capable GPU (GTX 1650 4GB or better)
-- Conda environment: `interior_ai`
-
-### Installation
+### Backend Setup
 
 ```bash
-# 1. Install dependencies
 cd backend
+
+# Install dependencies
 pip install -r requirements.txt
 
-# 2. Download SAM weights (if not exists)
-# Place sam_vit_b_01ec64.pth in weights/
+# Move model weights
+mv sam_vit_b_01ec64.pth weights/
 
-# 3. Configure environment (optional)
-cp .env.example .env
+# Run server
+python -m app.main
 ```
 
-### First Run
+Server sẽ chạy tại: `http://localhost:8000`
+
+### Frontend Setup
 
 ```bash
-# Start server
-~/miniconda3/envs/interior_ai/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cd frontend
 
-# Test in another terminal
-~/miniconda3/envs/interior_ai/bin/python test_inpainting_api.py
+# Install dependencies
+flutter pub get
+
+# Run app
+flutter run
 ```
 
-## 📡 API Endpoints
+### Port Forwarding (Windows → WSL)
 
-### Segmentation
-- `POST /api/v1/segmentation/upload` - Upload image, get image_id
-- `POST /api/v1/segmentation/segment-points` - Segment with points
-- `GET /api/v1/segmentation/image/{image_id}` - Get uploaded image
-- `GET /api/v1/segmentation/mask-image/{mask_id}` - Get mask PNG
-
-### Inpainting
-- `POST /api/v1/inpainting/remove-object-async` - Submit inpainting job
-- `GET /api/v1/inpainting/job-status/{job_id}` - Check job status
-- `GET /api/v1/inpainting/result/{result_id}` - Get result image
-
-### Health
-- `GET /api/v1/health` - System health check
-
-## 🧪 Testing
-
-```bash
-# Test SAM segmentation
-~/miniconda3/envs/interior_ai/bin/python test_sam_dataset.py
-
-# Test inpainting integration
-~/miniconda3/envs/interior_ai/bin/python test_inpainting_api.py
-
-# Benchmark performance
-~/miniconda3/envs/interior_ai/bin/python benchmark_sam.py
-
-# Optimize parameters
-~/miniconda3/envs/interior_ai/bin/python optimize_inpainting_strength.py
+```powershell
+# Run as Administrator
+.\setup_port_forward.ps1
 ```
 
-See [TESTING.md](TESTING.md) for detailed test guide.
+## 🎯 Roadmap 4 Tuần
 
-## 📚 Documentation
+### Tuần 1: SAM Segmentation ✅
+- [x] Restructure codebase
+- [x] Interactive segmentation với click points
+- [x] Generate và save masks
 
-- **[DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)** - Development workflow
-- **[TESTING.md](TESTING.md)** - Testing guide
-- **[TEST_INPAINTING.md](TEST_INPAINTING.md)** - Inpainting test instructions
-- **[PROJECT_STATUS.md](PROJECT_STATUS.md)** - Current project status
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture
-- **[COST_ANALYSIS.md](COST_ANALYSIS.md)** - Cost comparison
-- **[INPAINTING_ALTERNATIVES.md](INPAINTING_ALTERNATIVES.md)** - Alternative methods
+### Tuần 2: Inpainting Pipeline ✅
+- [x] Tích hợp Stable Diffusion Inpainting
+- [x] Optimize prompts cho "empty room"
+- [x] Flutter: Hiển thị kết quả
 
-## 🛠️ Development
+### Tuần 3: ControlNet Generation ✅
+- [x] MLSD/Canny edge detection
+- [x] ControlNet integration
+- [x] Style selection UI
 
-### Adding New Features
+### Tuần 4: AR + Finalization
+- [ ] ARCore basic placement
+- [ ] Báo cáo và documentation
+- [ ] Video demo
 
-1. **Core logic**: Add to `app/core/`
-2. **API models**: Add to `app/models/`
-3. **Endpoints**: Add to `app/api/v1/endpoints/`
-4. **Register**: Update `app/api/v1/router.py`
+## 🛠️ Tech Stack
 
-### Code Style
-- Follow PEP 8
-- Use type hints
-- Add docstrings
-- Handle errors gracefully
+### Backend
+- **Framework**: FastAPI
+- **AI Models**: 
+  - SAM (Segment Anything Model)
+  - Stable Diffusion Inpainting
+  - ControlNet
+  - MLSD (optional)
+- **Hardware**: GTX 1650 4GB (CUDA)
 
-## ⚙️ Configuration
+### Frontend
+- **Framework**: Flutter
+- **Plugins**: 
+  - image_picker
+  - http
+  - arcore_flutter_plugin (planned)
 
-### Optimized Parameters (GTX 1650 4GB)
+## 📊 SWOT Analysis
 
-**SAM:**
-```python
-model = "vit_b"
-checkpoint = "weights/sam_vit_b_01ec64.pth"
-```
+**Strengths**: Giải quyết pain point thực sự (renovation vs add-on), tech stack hiện đại
 
-**Stable Diffusion Inpainting:**
-```python
-model = "runwayml/stable-diffusion-inpainting"
-dtype = torch.float32  # NOT fp16
-steps = 50
-guidance_scale = 11.0
-strength = 0.99
-```
+**Weaknesses**: VRAM 4GB hạn chế, thời gian 4 tuần gấp
 
-## 🐛 Troubleshooting
+**Opportunities**: Cloud APIs (Replicate, HuggingFace), pretrained models
 
-### Backend won't start
-```bash
-# Check Python version
-~/miniconda3/envs/interior_ai/bin/python --version
+**Threats**: Diffusion models nặng, AR trên Flutter còn bug
 
-# Check dependencies
-~/miniconda3/envs/interior_ai/bin/pip list | grep -E "torch|diffusers|fastapi"
-```
+## 📖 Documentation
 
-### Out of memory
-```bash
-# Check VRAM usage
-nvidia-smi
-
-# Clear CUDA cache
-~/miniconda3/envs/interior_ai/bin/python -c "import torch; torch.cuda.empty_cache()"
-```
-
-### Black output from inpainting
-✅ **FIXED**: Use float32 instead of fp16 (implemented in code)
-
-See [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md) for more troubleshooting.
-
-## 📈 Roadmap
-
-- [x] **Week 1**: SAM segmentation + Flutter UI
-- [x] **Week 2 (Day 8-9)**: Inpainting integration
-- [ ] **Week 2 (Day 10-14)**: Testing & optimization
-- [ ] **Week 3**: ControlNet generation
-- [ ] **Week 4**: AR + finalization
-
-See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed progress.
+- [Backend README](backend/README.md)
+- [Project Objectives](.kiro/steering/project-objectives.md)
+- [Project Structure](.kiro/steering/project-structure.md)
 
 ## 🤝 Contributing
 
-1. Follow project structure
-2. Write tests for new features
-3. Update documentation
-4. Test on real images
+Dự án môn học - Computer Vision, Năm 4
 
-## 📝 Notes
+## 📝 License
 
-- Models load once at startup (singleton pattern)
-- CORS enabled for Flutter app
-- Auto-detect CUDA/CPU
-- Results cached in `data/outputs/`
-- Async processing for long-running tasks
-
-## 📞 Support
-
-For issues:
-1. Check documentation files
-2. Review test scripts
-3. Check API docs at `/docs`
-4. Review code comments
+Academic Project - For Educational Purposes
