@@ -49,8 +49,10 @@ class Settings(BaseSettings):
     HUGGINGFACE_API_KEY: Optional[str] = None  # Legacy name
     
     # ── Remove-object Pipeline Settings ──────────────────────────────────────
-    # Primary method for object removal: "lama" | "replicate_sd" | "local_sd" | "auto"
+    # Primary method for object removal: "lama" | "replicate" | "local" | "auto"
     REMOVE_OBJECT_METHOD: str = "lama"
+    # Backward-compatible legacy alias. Prefer REMOVE_OBJECT_METHOD.
+    INPAINTING_METHOD: Optional[str] = None
     # Fallback when primary fails
     REMOVE_OBJECT_FALLBACK: str = "replicate_sd"
     # Mask coverage gate: reject if fraction outside (0-1 float, not %)

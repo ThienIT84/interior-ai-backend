@@ -274,9 +274,14 @@ def get_inpainting_service(default_method: Optional[InpaintingMethod] = None) ->
     global _inpainting_service_instance
     
     if _inpainting_service_instance is None:
-        # Read default method từ env - os.getenv hoạt động nếu được set trực tiếp,
-        # fallback về settings nếu cần
-        env_method = os.getenv("INPAINTING_METHOD") or getattr(settings, "INPAINTING_METHOD", "auto") or "auto"
+        # Primary config is REMOVE_OBJECT_METHOD, keep INPAINTING_METHOD as legacy alias.
+        env_method = (
+            os.getenv("REMOVE_OBJECT_METHOD")
+            or getattr(settings, "REMOVE_OBJECT_METHOD", None)
+            or os.getenv("INPAINTING_METHOD")
+            or getattr(settings, "INPAINTING_METHOD", None)
+            or "auto"
+        )
         method = default_method or env_method
         
         _inpainting_service_instance = InpaintingService(default_method=method)
