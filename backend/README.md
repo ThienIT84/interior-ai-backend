@@ -35,6 +35,26 @@ cd ~/interior_project/backend
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
+### 4. Redis for Async Inpainting (Required)
+
+`POST /api/v1/inpainting/remove-object-async` stores and tracks jobs in Redis.
+
+Start Redis from project root:
+
+```bash
+cd ~/interior_project
+docker compose up -d redis
+```
+
+Verify Redis is reachable:
+
+```bash
+redis-cli -h 127.0.0.1 -p 6379 ping
+# Expected: PONG
+```
+
+If Redis is not available, use synchronous endpoint `POST /api/v1/inpainting/remove-object`.
+
 ## 📁 Project Structure
 
 ```
