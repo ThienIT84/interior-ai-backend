@@ -2,7 +2,7 @@
 FastAPI application entry point
 Refactored with clean architecture
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -65,12 +65,11 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
 # Legacy endpoint for backward compatibility
 @app.post("/predict")
-async def predict_legacy(file):
+async def predict_legacy(file: UploadFile = File(...)):
     """
     Legacy endpoint - redirects to new API
     Kept for backward compatibility with existing Flutter app
     """
-    from fastapi import UploadFile, File
     from app.api.v1.endpoints.segmentation import segment_image
     
     return await segment_image(file, get_model_manager())
