@@ -14,17 +14,17 @@ Tong thoi gian: 10 gio tap trung.
 ## MOC 0 - CHUAN BI (00:00 -> 00:30)
 
 ### Task 0.1 - Tao nhanh checklist tong
-- [ ] Tao branch moi: fix/report-readiness
-- [ ] Chot 3 luong demo:
-  - [ ] Upload + Segmentation
-  - [ ] Inpainting remove object
-  - [ ] Generation design (style/placement)
-- [ ] Chot script test nhanh cuoi moi block
+- [done] Tao branch moi: fix/report-readiness
+- [done] Chot 3 luong demo:
+  - [done] Upload + Segmentation (ổn ở mức cơ bản cho SAM nhưng với SAM 3 thì việc nhập liệu ví dụ ghế nhưng cái mục ấn để bắt đầu phân đoạn lại bị tô xám không ấn được)
+  - [done] Inpainting remove object (dùng lama nên đôi lúc nó còn mờ ở chỗ xóa, nhưng nhìn chung là ổn)
+  -[done] Generation design (style/placement) (ổn nhưng thời gian tùy vào style mà người dùng chọn, có style nhanh có style chậm)
+- [ổn] Chot script test nhanh cuoi moi block
 
 ### Task 0.2 - Chup hien trang truoc khi sua
-- [ ] Chay: git status
-- [ ] Chay: backend lenh health check (neu backend da run)
-- [ ] Chup anh/ghi chu loi hien tai de doi chieu sau fix
+- [done] Chay: git status
+- [done] Chay: backend lenh health check (neu backend da run)
+- [done] Chup anh/ghi chu loi hien tai de doi chieu sau fix
 
 Tieu chi hoan thanh MOC 0:
 - Co branch rieng
@@ -40,12 +40,12 @@ Files:
 - backend/app/main.py
 
 Viec can lam:
-- [ ] Sua ham predict_legacy nhan UploadFile = File(...)
-- [ ] Dam bao endpoint /predict goi duoc segmentation endpoint ma khong vo 422
-- [ ] Dam bao backward compatibility voi frontend cu
+- [done] Sua ham predict_legacy nhan UploadFile = File(...)
+- [done] Dam bao endpoint /predict dung contract (tranh 422 do sai kieu file)
+- [done] Dam bao backward compatibility voi frontend cu
 
 Check nhanh:
-- [ ] POST /predict voi 1 image => 200 hoac loi nghiep vu ro rang (khong crash contract)
+- [done] POST /predict voi 1 image => 200 hoac loi nghiep vu ro rang (khong crash contract)
 
 ### Task 1.2 - Dong bo cau hinh inpainting method
 Files:
@@ -54,24 +54,24 @@ Files:
 - backend/app/core/inpainting_service.py
 
 Viec can lam:
-- [ ] Chot 1 bien chinh: REMOVE_OBJECT_METHOD
-- [ ] Ho tro alias INPAINTING_METHOD tam thoi (neu can) de khong vo moi truong cu
-- [ ] Cap nhat comment huong dan trong .env.example
+- [done] Chot 1 bien chinh: REMOVE_OBJECT_METHOD
+- [done] Ho tro alias INPAINTING_METHOD tam thoi de khong vo moi truong cu
+- [done] Cap nhat comment huong dan trong .env.example
 
 Check nhanh:
-- [ ] Dat REMOVE_OBJECT_METHOD=lama chay dung
-- [ ] Dat REMOVE_OBJECT_METHOD=replicate chay dung
+- [done] Dat REMOVE_OBJECT_METHOD=lama chay dung
+- [done] Dat REMOVE_OBJECT_METHOD=replicate chay dung
 
 ### Task 1.3 - Bo sung dependency thieu trong requirements
 Files:
 - backend/requirements.txt
 
 Viec can lam:
-- [ ] Bo comment torch/torchvision hoac ghi ro cach cai theo moi truong CUDA
-- [ ] Dam bao setup clone moi khong mat buoc thu cong bat ngo
+- [done] Bo comment torch/torchvision trong requirements
+- [done] Dam bao setup clone moi khong mat buoc thu cong bat ngo
 
 Check nhanh:
-- [ ] pip install -r requirements.txt khong vo loi dependency chinh
+- [done] pip install -r requirements.txt khong vo loi dependency chinh
 
 ### Task 1.4 - Don luong frontend de tranh bam nham API cu
 Files:
@@ -79,15 +79,16 @@ Files:
 - ../interior_ai/frontend/lib/config.dart
 
 Viec can lam:
-- [ ] An/bo nut TEST OLD API hoac gan ro nhan Legacy debug
-- [ ] Giam rui ro demo bam nham
+- [done] Bo nut TEST OLD API khoi man hinh chinh
+- [done] Giam rui ro demo bam nham
 
 Check nhanh:
-- [ ] Tu man hinh chinh chi con luong khuyen nghi
+- [done] Tu man hinh chinh chi con luong khuyen nghi
 
 Tieu chi hoan thanh MOC 1:
 - 3 loi critical da xu ly
 - Demo luong chinh khong crash vi contract/config
+- [done] MOC 1 hoan tat (code + verify)
 
 Commit de xuat:
 - fix(p0): legacy predict + config unification + deps + frontend legacy cleanup
@@ -102,11 +103,11 @@ Files:
 - ../interior_ai/frontend/lib/main.dart
 
 Viec can lam:
-- [ ] Thay test mau Counter/MyApp bang test dung app hien tai
-- [ ] It nhat co 1 smoke test build app thanh cong
+- [done] Thay test mau Counter/MyApp bang test dung app hien tai
+- [done] It nhat co 1 smoke test build app thanh cong
 
 Check nhanh:
-- [ ] flutter test pass toi thieu 1 test
+- [done] flutter test pass toi thieu 1 test
 
 ### Task 2.2 - Bo sung smoke test backend
 Files de tao moi:
@@ -115,12 +116,12 @@ Files de tao moi:
 - backend/tests/test_inpainting_job_contract.py
 
 Viec can lam:
-- [ ] Test /api/v1/health tra schema co status
-- [ ] Test contract segmentation request/response co field can thiet
-- [ ] Test inpainting async tra job_id va status hop le
+- [done] Test /api/v1/health tra schema co status
+- [done] Test contract segmentation request/response co field can thiet
+- [done] Test inpainting async tra job_id va status hop le
 
 Check nhanh:
-- [ ] pytest backend/tests -q
+- [done] pytest backend/tests -q
 
 ### Task 2.3 - Don debug print/log khong can thiet
 Files:
@@ -128,8 +129,8 @@ Files:
 - backend/app/services/replicate_client.py
 
 Viec can lam:
-- [ ] Thay print bang logger hoac xu ly im lang co chu dich
-- [ ] Dam bao log de doc khi demo
+- [done] Thay print bang logger hoac xu ly im lang co chu dich
+- [done] Dam bao log de doc khi demo
 
 ### Task 2.4 - Xac nhan phu thuoc Redis trong runbook
 Files:
@@ -137,13 +138,11 @@ Files:
 - backend/README.md
 
 Viec can lam:
-- [ ] Ghi ro remove-object-async can Redis
-- [ ] Co lenh run chuan local: docker compose up -d redis + run backend
+- [done] Ghi ro remove-object-async can Redis
+- [done] Co lenh run chuan local: docker compose up -d redis + run backend
 
 Tieu chi hoan thanh MOC 2:
-- Co test toi thieu frontend/backend
-- Co tai lieu chay dung moi truong
-- Log trong, de debug
+- [done] MOC 2 hoan tat (code + test + docs)
 
 Commit de xuat:
 - test(p1): add smoke tests + docs(redis) + logging cleanup
@@ -159,32 +158,33 @@ Files:
 - backend/README.md
 
 Viec can lam:
-- [ ] Cap nhat ty le tien do that
-- [ ] Bo/doi cac dong Week 3 = 0% neu da co generation implementation
-- [ ] Ghi ro phan nao MVP, phan nao production-ready
+- [done] Cap nhat ty le tien do that
+- [done] Bo/doi cac dong Week 3 = 0% neu da co generation implementation
+- [done] Ghi ro phan nao MVP, phan nao production-ready
 
 ### Task 3.2 - Tao bang ket qua thu nghiem ngan
 File de tao moi:
 - docs/EXPERIMENT_RESULTS.md
 
 Viec can lam:
-- [ ] Chay 5-10 anh mau
-- [ ] Ghi: latency, success rate, chi phi cloud uoc tinh, ghi chu quality
-- [ ] Tach ket qua theo method (lama, replicate, local)
+- [todo-verify] Chay 5-10 anh mau
+- [done] Ghi: latency, success rate, chi phi cloud uoc tinh, ghi chu quality (baseline)
+- [done] Tach ket qua theo method (lama, replicate, local) (baseline)
 
 ### Task 3.3 - Viet file trade-off
 File de tao moi:
 - docs/TRADEOFFS_AND_LIMITATIONS.md
 
 Viec can lam:
-- [ ] Neu ro vi sao dung fallback chain
-- [ ] Neu ro gioi han in-memory jobs o generation
-- [ ] Neu ro han che GPU 4GB va tac dong
+- [done] Neu ro vi sao dung fallback chain
+- [done] Neu ro gioi han in-memory jobs o generation
+- [done] Neu ro han che GPU 4GB va tac dong
 
 Tieu chi hoan thanh MOC 3:
 - Tai lieu khop code
 - Co so lieu de tra loi hoi dong
 - Co phan han che/de xuat phat trien ro rang
+- [partial] MOC 3 hoan tat phan tai lieu; con benchmark 5-10 anh de chot so lieu cuoi
 
 Commit de xuat:
 - docs(p2): progress sync + experiment results + tradeoffs

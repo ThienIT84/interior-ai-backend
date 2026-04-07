@@ -11,21 +11,26 @@ Xây dựng ứng dụng cho phép:
 
 ## 🏗️ Kiến trúc Hệ thống
 
+```text
+Flutter App (Android/iOS)
+        |
+        | HTTP/REST
+        v
+FastAPI Backend (WSL/Linux)
+  - SAM segmentation (local/cloud)
+  - Inpainting service (lama/replicate/local)
+  - ControlNet generation
+  - Redis job persistence (inpainting async)
 ```
-┌─────────────────┐
-│  Flutter App    │  (Mobile - Android/iOS)
-│  - Camera       │
-│  - AR View      │
-└────────┬────────┘
-         │ HTTP/REST
-         ▼
-┌─────────────────┐
-│  FastAPI Server │  (Backend - Python)
-│  - SAM          │  (WSL Ubuntu + GTX 1650)
-│  - Diffusion    │
-│  - ControlNet   │
-└─────────────────┘
-```
+
+## 📊 Trạng Thái Hiện Tại (04/2026)
+
+| Module | Trang thai MVP | Production-ready | Ghi chu |
+|---|---|---|---|
+| Segmentation (SAM local + SAM3 cloud) | ✅ Có | ⏳ Chưa | SAM3 cloud hiện tại ưu tiên text prompt |
+| Inpainting (LaMa/Replicate/Local fallback) | ✅ Có | ⏳ Chưa | Async cần Redis, chất lượng phụ thuộc mask |
+| Generation (ControlNet + placement) | ✅ Có | ⏳ Chưa | Job generation đang lưu in-memory |
+| AR | ⏳ Chưa | ⏳ Chưa | Để ở scope tương lai |
 
 ## 📁 Cấu trúc Dự án
 
@@ -47,36 +52,36 @@ interior_project/
 
 ## 🚀 Quick Start
 
-### Backend Setup
+### 1) Backend Setup
 
 ```bash
 cd backend
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Move model weights
-mv sam_vit_b_01ec64.pth weights/
-
-# Run server
-python -m app.main
+cp .env.example .env
 ```
 
-Server sẽ chạy tại: `http://localhost:8000`
+**Lưu ý**: Nếu dùng endpoint async inpainting (`/api/v1/inpainting/remove-object-async`) thì cần chạy Redis:
 
-### Frontend Setup
+```bash
+# Tại thư mục gốc project
+docker compose up -d redis
+```
+
+Chạy server:
+```bash
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+Swagger UI: `http://localhost:8000/docs`
+
+### 2) Frontend Setup
 
 ```bash
 cd frontend
-
-# Install dependencies
 flutter pub get
-
-# Run app
 flutter run
 ```
 
-### Port Forwarding (Windows → WSL)
+### 3) Port Forwarding (Windows → WSL)
 
 ```powershell
 # Run as Administrator
@@ -85,7 +90,7 @@ flutter run
 
 ## 🎯 Roadmap 4 Tuần
 
-### Tuần 1: SAM Segmentation ✅
+### Tuần 1: SAM Segmentation ✅ 
 - [x] Restructure codebase
 - [x] Interactive segmentation với click points
 - [x] Generate và save masks
@@ -107,37 +112,17 @@ flutter run
 
 ## 🛠️ Tech Stack
 
-### Backend
-- **Framework**: FastAPI
-- **AI Models**: 
-  - SAM (Segment Anything Model)
-  - Stable Diffusion Inpainting
-  - ControlNet
-  - MLSD (optional)
+- **Backend**: FastAPI, SAM, Stable Diffusion, ControlNet, Redis
+- **Frontend**: Flutter (image_picker, http, arcore)
 - **Hardware**: GTX 1650 4GB (CUDA)
-
-### Frontend
-- **Framework**: Flutter
-- **Plugins**: 
-  - image_picker
-  - http
-  - arcore_flutter_plugin (planned)
-
-## 📊 SWOT Analysis
-
-**Strengths**: Giải quyết pain point thực sự (renovation vs add-on), tech stack hiện đại
-
-**Weaknesses**: VRAM 4GB hạn chế, thời gian 4 tuần gấp
-
-**Opportunities**: Cloud APIs (Replicate, HuggingFace), pretrained models
-
-**Threats**: Diffusion models nặng, AR trên Flutter còn bug
 
 ## 📖 Documentation
 
 - [Backend README](backend/README.md)
-- [Project Objectives](.kiro/steering/project-objectives.md)
-- [Project Structure](.kiro/steering/project-structure.md)
+- [Tiến độ cập nhật](PROJECT_PROGRESS_REPORT.md)
+- [Kết quả thử nghiệm](docs/EXPERIMENT_RESULTS.md)
+- [Trade-offs và giới hạn](docs/TRADEOFFS_AND_LIMITATIONS.md)
+- [Networking setup](NETWORKING_ARCHITECTURE.md)
 
 ## 🤝 Contributing
 
