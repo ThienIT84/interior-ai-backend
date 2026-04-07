@@ -1,0 +1,26 @@
+# FastAPI and server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+pydantic>=2.5.3
+pydantic-settings>=2.1.0
+
+# AI/ML (Để Python tự chọn bản ổn định nhất hiện tại)
+# torch
+# torchvision
+segment-anything==1.0
+numpy>=1.24.3
+opencv-python>=4.9.0.80
+
+# Image processing
+Pillow>=10.2.0
+
+# External APIs
+replicate>=0.25.1
+requests>=2.31.0
+
+# Caching & Job Persistence
+redis>=5.0.1
+
+# Utilities
+python-dotenv>=1.0.0
