@@ -1,6 +1,8 @@
 services:
   redis:
     image: redis:latest
+    ports:
+      - "6379:6379" # Allow backend running on host to connect via localhost:6379
     volumes:
       - redis_data:/data # Persistence: Restart máy không mất Job
 

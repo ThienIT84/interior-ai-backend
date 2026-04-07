@@ -1,148 +1,92 @@
 # AI Interior Design - Computer Vision Project
 
-Hệ thống hỗ trợ thiết kế và tái cấu trúc nội thất sử dụng Generative AI và AR.
+He thong ho tro cai tao noi that bang Computer Vision + Generative AI.
 
-## 📋 Mục tiêu Dự án
+## Tong Quan
 
-Xây dựng ứng dụng cho phép:
-1. **Xóa bỏ** vật thể nội thất cũ bằng AI (SAM + Stable Diffusion Inpainting)
-2. **Tạo sinh** thiết kế mới với ControlNet
-3. **Trực quan hóa** trong AR với tỉ lệ thực tế
+Du an gom 2 phan:
+- Backend FastAPI (Python) trong thu muc `backend/` thuoc workspace `interior_project`
+- Frontend Flutter trong workspace khac: `/mnt/d/interior_ai/frontend`
 
-## 🏗️ Kiến trúc Hệ thống
+Muc tieu chinh:
+1. Tach doi tuong noi that can xoa (Segmentation)
+2. Xoa doi tuong va tao phong trong (Inpainting)
+3. Tao thiet ke moi theo style (Generation)
 
-```
-┌─────────────────┐
-│  Flutter App    │  (Mobile - Android/iOS)
-│  - Camera       │
-│  - AR View      │
-└────────┬────────┘
-         │ HTTP/REST
-         ▼
-┌─────────────────┐
-│  FastAPI Server │  (Backend - Python)
-│  - SAM          │  (WSL Ubuntu + GTX 1650)
-│  - Diffusion    │
-│  - ControlNet   │
-└─────────────────┘
-```
+## Trang Thai Hien Tai (04/2026)
 
-## 📁 Cấu trúc Dự án
+| Module | Trang thai MVP | Production-ready | Ghi chu |
+|---|---|---|---|
+| Segmentation (SAM local + SAM3 cloud) | Co | Chua | SAM3 cloud hien tai uu tien text prompt |
+| Inpainting (LaMa/Replicate/Local fallback) | Co | Chua | Async can Redis, chat luong phu thuoc mask |
+| Generation (ControlNet + placement) | Co | Chua | Job generation dang luu in-memory |
+| AR | Chua | Chua | De o scope tuong lai |
 
-```
-interior_project/
-├── backend/              # Python FastAPI Backend
-│   ├── app/             # Application code
-│   ├── weights/         # Model checkpoints
-│   ├── data/            # Data storage
-│   └── notebooks/       # Experiments
-│
-├── frontend/            # Flutter Mobile App
-│   └── lib/            # Dart code
-│
-├── docs/               # Documentation
-├── scripts/            # Utility scripts
-└── .kiro/             # Kiro AI configuration
+## Kien Truc Tong The
+
+```text
+Flutter App (Android/iOS)
+        |
+        | HTTP/REST
+        v
+FastAPI Backend (WSL/Linux)
+  - SAM segmentation (local/cloud)
+  - Inpainting service (lama/replicate/local)
+  - ControlNet generation
+  - Redis job persistence (inpainting async)
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
-### Backend Setup
+### 1) Backend
 
 ```bash
-cd backend
-
-# Install dependencies
+cd /home/tran_thien/interior_project/backend
 pip install -r requirements.txt
-
-# Move model weights
-mv sam_vit_b_01ec64.pth weights/
-
-# Run server
-python -m app.main
+cp .env.example .env
 ```
 
-Server sẽ chạy tại: `http://localhost:8000`
-
-### Frontend Setup
+Neu dung endpoint async inpainting (`/api/v1/inpainting/remove-object-async`) thi can Redis:
 
 ```bash
-cd frontend
+cd /home/tran_thien/interior_project
+docker compose up -d redis
+```
 
-# Install dependencies
+Chay backend:
+
+```bash
+cd /home/tran_thien/interior_project/backend
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+### 2) Frontend
+
+```bash
+cd /mnt/d/interior_ai/frontend
 flutter pub get
-
-# Run app
 flutter run
 ```
 
-### Port Forwarding (Windows → WSL)
+## Luong Demo De Xuat
 
-```powershell
-# Run as Administrator
-.\setup_port_forward.ps1
-```
+1. Upload anh va segmentation doi tuong
+2. Remove object (inpainting)
+3. Generate style moi hoac placement noi that
 
-## 🎯 Roadmap 4 Tuần
+## Tai Lieu Quan Trong
 
-### Tuần 1: SAM Segmentation ✅ (In Progress)
-- [x] Restructure codebase
-- [ ] Interactive segmentation với click points
-- [ ] Generate và save masks
-
-### Tuần 2: Inpainting Pipeline
-- [ ] Tích hợp Stable Diffusion Inpainting
-- [ ] Optimize prompts cho "empty room"
-- [ ] Flutter: Hiển thị kết quả
-
-### Tuần 3: ControlNet Generation
-- [ ] MLSD/Canny edge detection
-- [ ] ControlNet integration
-- [ ] Style selection UI
-
-### Tuần 4: AR + Finalization
-- [ ] ARCore basic placement
-- [ ] Báo cáo và documentation
-- [ ] Video demo
-
-## 🛠️ Tech Stack
-
-### Backend
-- **Framework**: FastAPI
-- **AI Models**: 
-  - SAM (Segment Anything Model)
-  - Stable Diffusion Inpainting
-  - ControlNet
-  - MLSD (optional)
-- **Hardware**: GTX 1650 4GB (CUDA)
-
-### Frontend
-- **Framework**: Flutter
-- **Plugins**: 
-  - image_picker
-  - http
-  - arcore_flutter_plugin (planned)
-
-## 📊 SWOT Analysis
-
-**Strengths**: Giải quyết pain point thực sự (renovation vs add-on), tech stack hiện đại
-
-**Weaknesses**: VRAM 4GB hạn chế, thời gian 4 tuần gấp
-
-**Opportunities**: Cloud APIs (Replicate, HuggingFace), pretrained models
-
-**Threats**: Diffusion models nặng, AR trên Flutter còn bug
-
-## 📖 Documentation
-
+- [Tien do cap nhat](PROJECT_PROGRESS_REPORT.md)
 - [Backend README](backend/README.md)
-- [Project Objectives](.kiro/steering/project-objectives.md)
-- [Project Structure](.kiro/steering/project-structure.md)
+- [Ket qua thu nghiem](docs/EXPERIMENT_RESULTS.md)
+- [Trade-offs va gioi han](docs/TRADEOFFS_AND_LIMITATIONS.md)
+- [Networking setup](NETWORKING_ARCHITECTURE.md)
 
-## 🤝 Contributing
+## Luu Y Scope
 
-Dự án môn học - Computer Vision, Năm 4
+- Ban hien tai da dat muc tieu bao cao do an o muc MVP.
+- Chua phai phien ban production-ready vi con cac gioi han ve persistence, test coverage sau, va hardening.
 
-## 📝 License
+## License
 
 Academic Project - For Educational Purposes
