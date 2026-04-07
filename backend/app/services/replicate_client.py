@@ -6,10 +6,14 @@ import replicate
 from pathlib import Path
 from typing import Optional, Dict, Any
 import requests
+import logging
 from PIL import Image
 import io
 
 from app.config import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 class ReplicateClient:
@@ -134,7 +138,7 @@ class ReplicateClient:
             return True
             
         except Exception as e:
-            print(f"Error downloading result: {e}")
+            logger.error(f"Error downloading result: {e}")
             return False
 
 
