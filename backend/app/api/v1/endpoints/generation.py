@@ -219,12 +219,20 @@ async def get_styles():
 # Task 3.2.1 + 3.4.1 - Generate design (async)
 # ---------------------------------------------------------------------------
 
+# Supported model identifiers
+SUPPORTED_MODELS = ["controlnet", "flux-pro"]
+
+
 class GenerateDesignRequest(BaseModel):
     """Request de tao thiet ke noi that moi."""
     image_id: str = Field(..., description="ID anh da upload (hoac result_id cua inpainting)")
     style: str = Field(..., description=f"Ten style. Cac gia tri hop le: {AVAILABLE_STYLES}")
-    guidance_scale: Optional[float] = Field(None, ge=1.0, le=20.0, description="Guidance scale (default: 9.0)")
-    steps: Optional[int] = Field(None, ge=10, le=50, description="So buoc inference (default: 20)")
+    model_id: str = Field(
+        "controlnet",
+        description=f"Model AI su dung. Cac gia tri hop le: {SUPPORTED_MODELS}",
+    )
+    guidance_scale: Optional[float] = Field(None, ge=1.0, le=100.0, description="Guidance scale")
+    steps: Optional[int] = Field(None, ge=10, le=50, description="So buoc inference")
     seed: Optional[int] = Field(None, description="Random seed de reproduce ket qua")
 
 
@@ -284,6 +292,13 @@ async def generate_design(request: GenerateDesignRequest):
         }
         ```
     """
+    # Validate model_id
+    if request.model_id not in SUPPORTED_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"model_id '{request.model_id}' khong hop le. Cac model ho tro: {SUPPORTED_MODELS}",
+        )
+
     # Lazy import de tranh loi khi token chua set
     try:
         from app.core.controlnet_generation import get_controlnet_service
@@ -345,6 +360,7 @@ async def generate_design(request: GenerateDesignRequest):
         job = svc.submit_job(
             image=image,
             style=request.style,
+            model_id=request.model_id,
             guidance_scale=request.guidance_scale,
             steps=request.steps,
             seed=request.seed,
