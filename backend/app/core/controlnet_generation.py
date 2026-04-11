@@ -28,12 +28,13 @@ import uuid
 import base64
 import threading
 import logging
-from typing import Optional, Tuple, Literal
+from typing import Optional, Tuple
 from PIL import Image
 import numpy as np
 
 from app.config import settings
 from app.core.prompts import get_style_prompts, AVAILABLE_STYLES
+from app.services.job_service import get_job_service, JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -41,22 +42,40 @@ logger = logging.getLogger(__name__)
 # Job model
 # -------------------------------------------------------------------------------------
 
-JobStatus = Literal["pending", "processing", "completed", "failed"]
-
 
 class GenerationJob:
     """Trang thai cua mot async generation job."""
 
-    def __init__(self, job_id: str, style: str):
+    def __init__(self, job_id: str, style: str, status: str = "pending"):
         self.job_id: str = job_id
         self.style: str = style
-        self.status: JobStatus = "pending"
+        self.status: str = status
         self.result_url: Optional[str] = None
         self.result_id: Optional[str] = None
         self.error: Optional[str] = None
         self.processing_time: Optional[float] = None
         self.metadata: dict = {}
         self.created_at: float = time.time()
+
+    @classmethod
+    def from_redis(cls, data: dict) -> "GenerationJob":
+        """Reconstruct GenerationJob from Redis data."""
+        payload = data.get("payload", {})
+        job = cls(
+            job_id=data.get("job_id"),
+            style=payload.get("style", "unknown"),
+            status=data.get("status", "pending")
+        )
+        job.result_url = data.get("result_url")
+        job.result_id = data.get("metadata", {}).get("result_id")
+        job.error = data.get("error")
+        job.metadata = data.get("metadata", {})
+        
+        # Parse processing time if available
+        if "processing_time" in job.metadata:
+            job.processing_time = job.metadata["processing_time"]
+            
+        return job
 
 
 # -------------------------------------------------------------------------------------
@@ -113,9 +132,8 @@ class ControlNetGeneration:
 
         os.environ["REPLICATE_API_TOKEN"] = self.api_token
 
-        # In-memory job store (MVP - thay bang Redis trong production)
-        self._jobs: dict[str, GenerationJob] = {}
-        self._lock = threading.Lock()
+        # Redis-based job record (Task 3.5.1 fix)
+        self.job_service = get_job_service()
 
         logger.info("✅ ControlNet Generation service initialized")
         logger.info(f"   Model: {self.MODEL_VERSION.split(':')[0]}")
@@ -157,11 +175,19 @@ class ControlNetGeneration:
                 f"Cac style ho tro: {AVAILABLE_STYLES}"
             )
 
-        job_id = str(uuid.uuid4()).replace("-", "")[:16]
+        # Create job in Redis via JobService
+        job_id = self.job_service.create_job(
+            job_type="generation",
+            payload={
+                "style": style,
+                "guidance_scale": guidance_scale,
+                "steps": steps,
+                "seed": seed
+            }
+        )
+        
+        # Legacy object mapping for the background thread
         job = GenerationJob(job_id=job_id, style=style)
-
-        with self._lock:
-            self._jobs[job_id] = job
 
         # Chay trong daemon thread de khong block request
         t = threading.Thread(
@@ -175,8 +201,11 @@ class ControlNetGeneration:
         return job
 
     def get_job(self, job_id: str) -> Optional[GenerationJob]:
-        """Tra ve GenerationJob theo job_id, hoac None neu khong tim thay."""
-        return self._jobs.get(job_id)
+        """Tra ve GenerationJob tu Redis theo job_id, hoac None neu khong tim thay."""
+        job_data = self.job_service.get_job(job_id)
+        if not job_data:
+            return None
+        return GenerationJob.from_redis(job_data)
 
     def generate_with_controlnet(
         self,
@@ -289,35 +318,76 @@ class ControlNetGeneration:
         steps: Optional[int],
         seed: Optional[int],
     ) -> None:
-        """Background thread: thuc hien generation va cap nhat job status."""
-        job.status = "processing"
-        logger.info(f"⏳ [job={job.job_id}] Processing started | style={style}")
+        """Background thread: thuc hien generation va cap nhat job status trong Redis."""
+        start_time = time.time()
+        
+        # Step 1: Preparation
+        self.job_service.update_job(
+            job.job_id, 
+            status=JobStatus.PROCESSING.value, 
+            progress=0.1,
+            metadata={"status_message": "Đang chuẩn bị dữ liệu hình ảnh..."}
+        )
+        logger.info(f"⏳ [job={job.job_id}] Preparation started | style={style}")
 
         try:
+            # Step 2: Uploading/Data URI conversion
+            # (Thuc hien ben trong generate_with_controlnet nhung ta cap nhat status o day)
+            self.job_service.update_job(
+                job.job_id,
+                progress=0.2,
+                metadata={"status_message": "Đang gửi yêu cầu tới AI Cloud (Replicate)..."}
+            )
+
+            # Step 3: Run ControlNet (Blocking call)
+            # Cap nhat status truoc khi chay blocking call
+            self.job_service.update_job(
+                job.job_id,
+                progress=0.3,
+                metadata={"status_message": "AI đang vẽ thiết kế (thường mất 15-30s)..."}
+            )
+            
             result_image, metadata = self.generate_with_controlnet(
                 image=image,
-                edges=None,  # Background job khong can edges - Replicate tu tinh
+                edges=None,
                 style=style,
                 guidance_scale=guidance_scale,
                 steps=steps,
                 seed=seed,
             )
 
+            # Step 4: Finalizing
+            self.job_service.update_job(
+                job.job_id,
+                progress=0.9,
+                metadata={"status_message": "Đang hoàn thiện và lưu kết quả..."}
+            )
+
             # Lay result_id tu output da save
             result_id = metadata.get("result_id", str(uuid.uuid4()).replace("-", "")[:16])
             result_url = f"/api/v1/generation/result/{result_id}"
 
-            job.status = "completed"
-            job.result_url = result_url
-            job.result_id = result_id
-            job.processing_time = metadata.get("processing_time")
-            job.metadata = metadata
+            self.job_service.update_job(
+                job.job_id,
+                status=JobStatus.COMPLETED.value,
+                progress=1.0,
+                result_url=result_url,
+                metadata={
+                    "result_id": result_id, 
+                    "status_message": "Hoàn tất!",
+                    **metadata
+                }
+            )
 
             logger.info(f"✅ [job={job.job_id}] Completed | result_id={result_id}")
 
         except Exception as e:
-            job.status = "failed"
-            job.error = str(e)
+            self.job_service.update_job(
+                job.job_id,
+                status=JobStatus.FAILED.value,
+                error=str(e),
+                metadata={"status_message": f"Lỗi: {str(e)}"}
+            )
             logger.error(f"❌ [job={job.job_id}] Failed: {e}")
 
     def _image_to_data_uri(self, image: Image.Image) -> str:

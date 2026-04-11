@@ -32,6 +32,7 @@ from app.core.edge_detection import (
     validate_image_for_edges,
 )
 from app.core.prompts import list_styles, AVAILABLE_STYLES, get_furniture_placement_prompt
+from app.services.job_service import get_job_service, JobStatus
 from app.utils.logger import logger
 
 router = APIRouter()
@@ -403,7 +404,7 @@ async def get_job_status(job_id: str):
         result_id=job.result_id,
         processing_time=job.processing_time,
         error=job.error,
-        metadata=job.metadata if job.status == "completed" else None,
+        metadata=job.metadata, # Luon tra ve metadata de lay status_message
     )
 
 
@@ -437,21 +438,7 @@ async def get_result(result_id: str):
 # Option 1 – Targeted Furniture Placement
 # ---------------------------------------------------------------------------
 
-class _PlacementJob:
-    """In-memory job record for furniture placement."""
-    def __init__(self, job_id: str, furniture_description: str):
-        self.job_id = job_id
-        self.furniture_description = furniture_description
-        self.status: str = "pending"   # pending | processing | completed | failed
-        self.result_url: Optional[str] = None
-        self.result_id: Optional[str] = None
-        self.error: Optional[str] = None
-        self.processing_time: Optional[float] = None
-        self.created_at: float = time.time()
-
-
-_placement_jobs: dict[str, _PlacementJob] = {}
-_placement_lock = threading.Lock()
+# JobService will handle placement jobs (Task 3.5.1 fix)
 
 
 class PlaceFurnitureRequest(BaseModel):
@@ -487,7 +474,7 @@ class PlacementJobStatusResponse(BaseModel):
 
 
 def _run_placement(
-    job: _PlacementJob,
+    job_id: str,
     image: Image.Image,
     bbox_x: float,
     bbox_y: float,
@@ -495,11 +482,12 @@ def _run_placement(
     bbox_h: float,
     furniture_description: str,
 ) -> None:
-    """Background thread: tao mask tu bbox, chay inpainting, cap nhat job."""
-    job.status = "processing"
+    """Background thread: tao mask tu bbox, chay inpainting, cap nhat job trong Redis."""
+    job_service = get_job_service()
+    job_service.update_job(job_id, status=JobStatus.PROCESSING.value, progress=0.2)
     start_time = time.time()
     logger.info(
-        f"⏳ [placement job={job.job_id}] Processing | '{furniture_description}' "
+        f"⏳ [placement job={job_id}] Processing | '{furniture_description}' "
         f"at bbox=({bbox_x:.2f},{bbox_y:.2f},{bbox_w:.2f},{bbox_h:.2f})"
     )
 
@@ -569,20 +557,34 @@ def _run_placement(
         output_path = settings.OUTPUTS_DIR / filename
         urllib.request.urlretrieve(result_url_remote, output_path)
 
-        job.status = "completed"
-        job.result_id = result_id
-        job.result_url = f"/api/v1/generation/placement-result/{result_id}"
-        job.processing_time = time.time() - start_time
+        processing_time = time.time() - start_time
+        result_url_local = f"/api/v1/generation/placement-result/{result_id}"
+        
+        job_service.update_job(
+            job_id,
+            status=JobStatus.COMPLETED.value,
+            progress=1.0,
+            result_url=result_url_local,
+            metadata={
+                "result_id": result_id,
+                "processing_time": processing_time
+            }
+        )
+        
         logger.info(
-            f"✅ [placement job={job.job_id}] Done | result_id={result_id} "
-            f"| time={job.processing_time:.1f}s"
+            f"✅ [placement job={job_id}] Done | result_id={result_id} "
+            f"| time={processing_time:.1f}s"
         )
 
     except Exception as e:
-        job.status = "failed"
-        job.error = str(e)
-        job.processing_time = time.time() - start_time
-        logger.error(f"❌ [placement job={job.job_id}] Failed: {e}", exc_info=True)
+        processing_time = time.time() - start_time
+        job_service.update_job(
+            job_id,
+            status=JobStatus.FAILED.value,
+            error=str(e),
+            metadata={"processing_time": processing_time}
+        )
+        logger.error(f"❌ [placement job={job_id}] Failed: {e}", exc_info=True)
 
 
 @router.post("/place-furniture", response_model=PlaceFurnitureResponse)
@@ -634,15 +636,20 @@ async def place_furniture(request: PlaceFurnitureRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Khong the doc anh: {e}")
 
-    job_id = uuid.uuid4().hex[:16]
-    job = _PlacementJob(job_id=job_id, furniture_description=request.furniture_description)
-    with _placement_lock:
-        _placement_jobs[job_id] = job
+    job_service = get_job_service()
+    job_id = job_service.create_job(
+        job_type="placement",
+        payload={
+            "image_id": request.image_id,
+            "furniture_description": request.furniture_description,
+            "bbox": [request.bbox_x, request.bbox_y, request.bbox_w, request.bbox_h]
+        }
+    )
 
     t = threading.Thread(
         target=_run_placement,
         args=(
-            job, image,
+            job_id, image,
             request.bbox_x, request.bbox_y, request.bbox_w, request.bbox_h,
             request.furniture_description,
         ),
@@ -667,20 +674,26 @@ async def place_furniture(request: PlaceFurnitureRequest):
 @router.get("/placement-job-status/{job_id}", response_model=PlacementJobStatusResponse)
 async def get_placement_job_status(job_id: str):
     """Kiem tra trang thai cua mot furniture placement job."""
-    job = _placement_jobs.get(job_id)
-    if job is None:
+    job_service = get_job_service()
+    job_data = job_service.get_job(job_id)
+    
+    if job_data is None:
         raise HTTPException(
             status_code=404,
             detail=f"Khong tim thay placement job_id='{job_id}'.",
         )
+        
+    payload = job_data.get("payload", {})
+    metadata = job_data.get("metadata", {})
+    
     return PlacementJobStatusResponse(
-        job_id=job.job_id,
-        status=job.status,
-        furniture_description=job.furniture_description,
-        result_url=job.result_url,
-        result_id=job.result_id,
-        processing_time=job.processing_time,
-        error=job.error,
+        job_id=job_id,
+        status=job_data.get("status"),
+        furniture_description=payload.get("furniture_description", "unknown"),
+        result_url=job_data.get("result_url"),
+        result_id=metadata.get("result_id"),
+        processing_time=metadata.get("processing_time"),
+        error=job_data.get("error"),
     )
 
 

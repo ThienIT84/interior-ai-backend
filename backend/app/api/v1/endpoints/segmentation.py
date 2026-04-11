@@ -71,14 +71,17 @@ async def get_segmentation_backend_debug(
 
 
 def _segment_points_local(
+    image_id: str,
     image_np: np.ndarray,
     point_coords: list[tuple[int, int]],
     point_labels: list[int],
     model_manager: ModelManager,
 ):
-    """Local SAM point segmentation flow."""
+    """Local SAM point segmentation flow with embedding caching."""
+    # This method handles the caching internally
+    model_manager.set_predictor_image(image_id, image_np)
+    
     sam_seg = SAMSegmentation(model_manager.sam_predictor)
-    sam_seg.set_image(image_np)
 
     n_foreground = sum(1 for l in point_labels if l == 1)
     if n_foreground >= 2:
@@ -154,13 +157,15 @@ async def segment_image(
         image_pil, image_np = load_image_from_bytes(contents)
         
         backend_used = _resolve_effective_backend(None)
+        
+        # Save input image first to get a stable ID
+        image_id = str(uuid.uuid4())
+        
         if backend_used == "local":
-            # Warm local SAM for faster first point-segmentation call
-            sam_seg = SAMSegmentation(model_manager.sam_predictor)
-            sam_seg.set_image(image_np)
+            # Warm local SAM and CACHE the embedding immediately
+            model_manager.set_predictor_image(image_id, image_np)
         
         # Save input image
-        image_id = str(uuid.uuid4())
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         input_filename = f"{timestamp}_{image_id}.jpg"
         input_path = settings.INPUTS_DIR / input_filename
@@ -215,6 +220,13 @@ async def segment_with_points_json(
         point_labels = [p.label for p in request.points]
         requested_backend = _resolve_effective_backend(request.segmentation_backend)
         text_prompt = (request.text_prompt or "").strip() or "object"
+        has_points = len(point_coords) > 0
+
+        if not has_points and not request.text_prompt:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cần có ít nhất 1 điểm chạm hoặc 1 prompt mô tả để thực hiện segmentation."
+            )
 
         logger.info(f"🎯 Segmenting image {image_id} with {len(point_coords)} points"
                     + (f" | text='{text_prompt}'" if requested_backend == "sam3_replicate" else ""))
@@ -241,12 +253,14 @@ async def segment_with_points_json(
                     text_prompt=text_prompt,
                 )
             except Exception as sam3_error:
-                if settings.SEGMENTATION_FALLBACK_TO_LOCAL:
+                # Chỉ Fallback nếu CÓ điểm chạm (vì local SAM cần điểm)
+                if settings.SEGMENTATION_FALLBACK_TO_LOCAL and has_points:
                     logger.warning(
                         "⚠️ SAM3 Replicate failed, falling back to local SAM: "
                         f"{sam3_error}"
                     )
                     best_mask, best_score, all_masks_info = _segment_points_local(
+                        image_id=image_id,
                         image_np=image_np,
                         point_coords=point_coords,
                         point_labels=point_labels,
@@ -254,9 +268,14 @@ async def segment_with_points_json(
                     )
                     backend_used = "local_fallback"
                 else:
-                    raise RuntimeError(f"SAM3 Replicate segmentation failed: {sam3_error}")
+                    error_msg = f"SAM3 Replicate failed: {sam3_error}"
+                    if not has_points:
+                        error_msg += " (Cannot fallback to local SAM because no points provided)"
+                    logger.error(f"❌ {error_msg}")
+                    raise RuntimeError(error_msg)
         else:
             best_mask, best_score, all_masks_info = _segment_points_local(
+                image_id=image_id,
                 image_np=image_np,
                 point_coords=point_coords,
                 point_labels=point_labels,
@@ -365,9 +384,9 @@ async def segment_with_box(
                        "Set SEGMENTATION_FALLBACK_TO_LOCAL=true or switch SEGMENTATION_BACKEND=local",
             )
 
-        # Initialize local SAM and set image
+        # Set image in predictor with caching check
+        model_manager.set_predictor_image(image_id, image_np)
         sam_seg = SAMSegmentation(model_manager.sam_predictor)
-        sam_seg.set_image(image_np)
         
         # Perform segmentation with box
         box = (x1, y1, x2, y2)
@@ -633,4 +652,3 @@ async def get_mask_image(mask_id: str):
     except Exception as e:
         logger.error(f"❌ Error retrieving mask image: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
