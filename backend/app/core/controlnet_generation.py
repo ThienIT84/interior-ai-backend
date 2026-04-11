@@ -39,6 +39,33 @@ from app.services.job_service import get_job_service, JobStatus
 logger = logging.getLogger(__name__)
 
 # -------------------------------------------------------------------------------------
+# Model configurations – add new models here
+# -------------------------------------------------------------------------------------
+
+MODEL_CONFIGS = {
+    "controlnet": {
+        "replicate_id": (
+            "jagilley/controlnet-canny:"
+            "aff48af9c68d162388d230a2ab003f68d2638d88307bdaf1c2f1ac95079c9613"
+        ),
+        "display_name": "Standard (SD 1.5)",
+        "default_steps": 20,
+        "default_guidance": 9.0,
+        "resolution": 512,
+    },
+    "flux-pro": {
+        "replicate_id": "black-forest-labs/flux-canny-pro",
+        "display_name": "Professional (Flux)",
+        "default_steps": 28,
+        "default_guidance": 30,
+        "resolution": 1024,
+    },
+}
+
+DEFAULT_MODEL_ID = "controlnet"
+
+
+# -------------------------------------------------------------------------------------
 # Job model
 # -------------------------------------------------------------------------------------
 
@@ -84,29 +111,14 @@ class GenerationJob:
 
 class ControlNetGeneration:
     """
-    Replicate ControlNet-Canny wrapper de tao thiet ke noi that.
+    Multi-model Replicate wrapper de tao thiet ke noi that.
 
-    Model: jagilley/controlnet-canny
-    - Nhan vao anh phong goc (RGB), tu dong trich xuat Canny edge noi bo
-    - Sinh anh thiet ke moi theo style prompt
+    Supported models:
+      - controlnet  : jagilley/controlnet-canny (SD 1.5) – fast, cheap
+      - flux-pro    : black-forest-labs/flux-canny-pro  – high quality
 
     Note: Edge preview rieng qua /preview-edges endpoint (edge_detection.py).
     """
-
-    # Replicate model - pinned version de tranh breaking changes
-    MODEL_VERSION = (
-        "jagilley/controlnet-canny:"
-        "aff48af9c68d162388d230a2ab003f68d2638d88307bdaf1c2f1ac95079c9613"
-    )
-
-    # Resolution toi uu cho ControlNet SD1.5 (512 hoac 768)
-    DEFAULT_RESOLUTION = 512
-
-    # ControlNet inference steps (nhanh hon inpainting)
-    DEFAULT_STEPS = 20
-
-    # Guidance scale cho ControlNet (cao hon = theo prompt chat hon)
-    DEFAULT_GUIDANCE = 9.0
 
     # -------------------------------------------------------------------------------------
 
@@ -136,9 +148,8 @@ class ControlNetGeneration:
         self.job_service = get_job_service()
 
         logger.info("✅ ControlNet Generation service initialized")
-        logger.info(f"   Model: {self.MODEL_VERSION.split(':')[0]}")
-        logger.info(f"   Default resolution: {self.DEFAULT_RESOLUTION}px")
-        logger.info(f"   Default steps: {self.DEFAULT_STEPS}")
+        for mid, cfg in MODEL_CONFIGS.items():
+            logger.info(f"   [{mid}] {cfg['display_name']} → {cfg['replicate_id'].split(':')[0]}")
 
     # -------------------------------------------------------------------------------------
     # Public API
@@ -148,6 +159,7 @@ class ControlNetGeneration:
         self,
         image: Image.Image,
         style: str,
+        model_id: str = DEFAULT_MODEL_ID,
         guidance_scale: Optional[float] = None,
         steps: Optional[int] = None,
         seed: Optional[int] = None,
@@ -157,16 +169,17 @@ class ControlNetGeneration:
 
         Args:
             image: Anh phong goc (RGB PIL Image)
-            style: Ten style ("modern", "minimalist", "industrial")
-            guidance_scale: Guidance scale (default: DEFAULT_GUIDANCE)
-            steps: So buoc inference (default: DEFAULT_STEPS)
+            style: Ten style ("modern", "minimalist", "industrial", ...)
+            model_id: Model identifier ("controlnet" or "flux-pro")
+            guidance_scale: Guidance scale (auto-adjusted per model if None)
+            steps: So buoc inference (auto-adjusted per model if None)
             seed: Random seed de co the reproduce ket qua
 
         Returns:
             GenerationJob voi status="pending"
 
         Raises:
-            ValueError: Neu style khong hop le
+            ValueError: Neu style hoac model_id khong hop le
         """
         # Validate style
         if style.lower() not in AVAILABLE_STYLES:
@@ -175,29 +188,38 @@ class ControlNetGeneration:
                 f"Cac style ho tro: {AVAILABLE_STYLES}"
             )
 
+        # Validate model_id
+        if model_id not in MODEL_CONFIGS:
+            raise ValueError(
+                f"Model '{model_id}' khong hop le. "
+                f"Cac model ho tro: {list(MODEL_CONFIGS.keys())}"
+            )
+
         # Create job in Redis via JobService
         job_id = self.job_service.create_job(
             job_type="generation",
             payload={
                 "style": style,
+                "model_id": model_id,
                 "guidance_scale": guidance_scale,
                 "steps": steps,
-                "seed": seed
+                "seed": seed,
             }
         )
-        
+
         # Legacy object mapping for the background thread
         job = GenerationJob(job_id=job_id, style=style)
 
         # Chay trong daemon thread de khong block request
         t = threading.Thread(
             target=self._run_generation,
-            args=(job, image, style, guidance_scale, steps, seed),
+            args=(job, image, style, model_id, guidance_scale, steps, seed),
             daemon=True,
         )
         t.start()
 
-        logger.info(f"📋 Generation job submitted | job_id={job_id} | style={style}")
+        model_display = MODEL_CONFIGS[model_id]["display_name"]
+        logger.info(f"📋 Generation job submitted | job_id={job_id} | style={style} | model={model_display}")
         return job
 
     def get_job(self, job_id: str) -> Optional[GenerationJob]:
@@ -212,24 +234,24 @@ class ControlNetGeneration:
         image: Image.Image,
         edges: Optional[np.ndarray],
         style: str,
+        model_id: str = DEFAULT_MODEL_ID,
         guidance_scale: Optional[float] = None,
         steps: Optional[int] = None,
         seed: Optional[int] = None,
     ) -> Tuple[Image.Image, dict]:
         """
-        Tao thiet ke noi that (SYNCHRONOUS) dung ControlNet Canny.
+        Tao thiet ke noi that (SYNCHRONOUS) dung model duoc chon.
 
         NOTE: Su dung submit_job() + poll cho async (khuyen nghi cho endpoint).
               Ham nay dung cho testing va noi bo.
 
         Args:
             image: Anh phong goc (RGB PIL Image)
-            edges: Pre-computed Canny edge map (numpy uint8). HIEN TAI KHONG DUNG -
-                   Replicate model tu tinh edge noi bo. Giu lai trong signature
-                   de tuong thich tuong lai (model co the nhan control_image truc tiep).
-            style: Ten style ("modern", "minimalist", "industrial")
-            guidance_scale: Guidance scale (default: DEFAULT_GUIDANCE)
-            steps: So buoc inference (default: DEFAULT_STEPS)
+            edges: Pre-computed Canny edge map (unused – kept for API compat)
+            style: Ten style
+            model_id: "controlnet" hoac "flux-pro"
+            guidance_scale: Guidance scale (auto per model if None)
+            steps: So buoc inference (auto per model if None)
             seed: Random seed
 
         Returns:
@@ -239,30 +261,33 @@ class ControlNetGeneration:
             ValueError: Neu style khong hop le
             RuntimeError: Neu Replicate API that bai
         """
+        cfg = MODEL_CONFIGS[model_id]
         positive_prompt, negative_prompt = get_style_prompts(style)
 
-        guidance_scale = guidance_scale or self.DEFAULT_GUIDANCE
-        steps = steps or self.DEFAULT_STEPS
+        # Apply model-specific defaults
+        guidance_scale = guidance_scale or cfg["default_guidance"]
+        steps = steps or cfg["default_steps"]
 
-        # Chuan bi anh
+        # Prepare image data
         image_uri = self._image_to_data_uri(image)
 
-        input_data = {
-            "image": image_uri,
-            "prompt": positive_prompt,
-            "a_prompt": "best quality, extremely detailed",
-            "n_prompt": negative_prompt,
-            "num_samples": "1",
-            "image_resolution": str(self.DEFAULT_RESOLUTION),
-            "detect_resolution": self.DEFAULT_RESOLUTION,
-            "ddim_steps": steps,
-            "scale": guidance_scale,
-            "eta": 0.0,
-        }
-        if seed is not None:
-            input_data["seed"] = seed
+        # Build model-specific input
+        if model_id == "flux-pro":
+            input_data = self._build_flux_input(
+                image_uri, positive_prompt, steps, guidance_scale, seed,
+            )
+        else:
+            input_data = self._build_controlnet_input(
+                image_uri, positive_prompt, negative_prompt,
+                steps, guidance_scale, cfg["resolution"], seed,
+            )
 
-        logger.info(f"🎨 ControlNet generation | style={style} | steps={steps} | guidance={guidance_scale}")
+        model_display = cfg["display_name"]
+        replicate_id = cfg["replicate_id"]
+        logger.info(
+            f"🎨 Generation | model={model_display} | style={style} "
+            f"| steps={steps} | guidance={guidance_scale}"
+        )
         logger.info(f"   Prompt: {positive_prompt[:80]}...")
 
         start_time = time.time()
@@ -270,10 +295,9 @@ class ControlNetGeneration:
         try:
             import replicate
 
-            output = replicate.run(self.MODEL_VERSION, input=input_data)
+            output = replicate.run(replicate_id, input=input_data)
 
-            # Output la list 2 anh: [0] = edge map (canny viz), [1] = generated design
-            # Phai lay output[-1] (anh cuoi cung = generated result)
+            # Parse output – ControlNet returns list [edge, result]; Flux returns single URL
             if isinstance(output, list) and len(output) > 0:
                 result_url = str(output[-1])
             else:
@@ -281,20 +305,24 @@ class ControlNetGeneration:
 
             logger.info(f"   Downloading result from: {result_url}")
 
-            # Download va save ket qua
             result_image, result_id = self._download_and_save(result_url, style)
 
             processing_time = time.time() - start_time
-            logger.info(f"✅ ControlNet done | style={style} | time={processing_time:.1f}s | id={result_id}")
+            logger.info(
+                f"✅ Generation done | model={model_display} | style={style} "
+                f"| time={processing_time:.1f}s | id={result_id}"
+            )
 
             metadata = {
                 "style": style,
+                "model_id": model_id,
+                "model_display": model_display,
                 "steps": steps,
                 "guidance_scale": guidance_scale,
                 "seed": seed,
                 "processing_time": processing_time,
-                "model": self.MODEL_VERSION.split(":")[0],
-                "resolution": self.DEFAULT_RESOLUTION,
+                "model": replicate_id.split(":")[0],
+                "resolution": cfg["resolution"],
                 "result_id": result_id,
             }
 
@@ -302,8 +330,64 @@ class ControlNetGeneration:
 
         except Exception as e:
             processing_time = time.time() - start_time
-            logger.error(f"❌ ControlNet failed | style={style} | time={processing_time:.1f}s | error={e}", exc_info=True)
-            raise RuntimeError(f"ControlNet generation that bai: {str(e)}") from e
+            logger.error(
+                f"❌ Generation failed | model={model_display} | style={style} "
+                f"| time={processing_time:.1f}s | error={e}",
+                exc_info=True,
+            )
+            raise RuntimeError(f"Generation that bai ({model_display}): {str(e)}") from e
+
+    # -------------------------------------------------------------------------------------
+    # Model-specific input builders
+    # -------------------------------------------------------------------------------------
+
+    @staticmethod
+    def _build_controlnet_input(
+        image_uri: str,
+        positive_prompt: str,
+        negative_prompt: str,
+        steps: int,
+        guidance_scale: float,
+        resolution: int,
+        seed: Optional[int],
+    ) -> dict:
+        """Build input dict for jagilley/controlnet-canny."""
+        data = {
+            "image": image_uri,
+            "prompt": positive_prompt,
+            "a_prompt": "best quality, extremely detailed",
+            "n_prompt": negative_prompt,
+            "num_samples": "1",
+            "image_resolution": str(resolution),
+            "detect_resolution": resolution,
+            "ddim_steps": steps,
+            "scale": guidance_scale,
+            "eta": 0.0,
+        }
+        if seed is not None:
+            data["seed"] = seed
+        return data
+
+    @staticmethod
+    def _build_flux_input(
+        image_uri: str,
+        positive_prompt: str,
+        steps: int,
+        guidance: float,
+        seed: Optional[int],
+    ) -> dict:
+        """Build input dict for black-forest-labs/flux-canny-pro."""
+        data = {
+            "control_image": image_uri,
+            "prompt": positive_prompt,
+            "steps": steps,
+            "guidance": guidance,
+            "output_format": "png",
+            "safety_tolerance": 5,
+        }
+        if seed is not None:
+            data["seed"] = seed
+        return data
 
     # -------------------------------------------------------------------------------------
     # Private helpers
@@ -314,43 +398,42 @@ class ControlNetGeneration:
         job: GenerationJob,
         image: Image.Image,
         style: str,
+        model_id: str,
         guidance_scale: Optional[float],
         steps: Optional[int],
         seed: Optional[int],
     ) -> None:
         """Background thread: thuc hien generation va cap nhat job status trong Redis."""
+        model_display = MODEL_CONFIGS[model_id]["display_name"]
         start_time = time.time()
         
-        # Step 1: Preparation
         self.job_service.update_job(
             job.job_id, 
             status=JobStatus.PROCESSING.value, 
             progress=0.1,
-            metadata={"status_message": "Đang chuẩn bị dữ liệu hình ảnh..."}
+            metadata={"status_message": f"Đang chuẩn bị ({model_display})..."}
         )
-        logger.info(f"⏳ [job={job.job_id}] Preparation started | style={style}")
+        logger.info(f"⏳ [job={job.job_id}] Preparation | style={style} | model={model_display}")
 
         try:
-            # Step 2: Uploading/Data URI conversion
-            # (Thuc hien ben trong generate_with_controlnet nhung ta cap nhat status o day)
             self.job_service.update_job(
                 job.job_id,
                 progress=0.2,
-                metadata={"status_message": "Đang gửi yêu cầu tới AI Cloud (Replicate)..."}
+                metadata={"status_message": f"Đang gửi tới {model_display}..."}
             )
 
-            # Step 3: Run ControlNet (Blocking call)
-            # Cap nhat status truoc khi chay blocking call
+            # Step 3: Run generation (Blocking call)
             self.job_service.update_job(
                 job.job_id,
                 progress=0.3,
-                metadata={"status_message": "AI đang vẽ thiết kế (thường mất 15-30s)..."}
+                metadata={"status_message": f"AI đang vẽ thiết kế ({model_display})..."}
             )
             
             result_image, metadata = self.generate_with_controlnet(
                 image=image,
                 edges=None,
                 style=style,
+                model_id=model_id,
                 guidance_scale=guidance_scale,
                 steps=steps,
                 seed=seed,
