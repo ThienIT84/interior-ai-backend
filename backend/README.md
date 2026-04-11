@@ -57,6 +57,19 @@ cd /home/tran_thien/interior_project
 docker compose up -d redis
 ```
 
+For host-run backend, use this in `backend/.env`:
+
+```text
+REDIS_URL=redis://127.0.0.1:6380/0
+```
+
+Quick verify:
+
+```bash
+redis-cli -h 127.0.0.1 -p 6380 ping
+redis-cli -h 127.0.0.1 -p 6380 --scan --pattern 'interior_job:*'
+```
+
 Run backend:
 
 ```bash

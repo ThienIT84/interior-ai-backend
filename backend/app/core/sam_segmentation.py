@@ -19,18 +19,10 @@ class SAMSegmentation:
             predictor: SAM predictor instance
         """
         self.predictor = predictor
-        self._current_image = None
-    
     def set_image(self, image: np.ndarray) -> None:
-        """
-        Set image for segmentation
-        
-        Args:
-            image: RGB image as numpy array (H, W, 3)
-        """
+        """Set image for SAM predictor."""
         logger.info(f"🖼️  Setting image for SAM: {image.shape}")
         self.predictor.set_image(image)
-        self._current_image = image
     
     def segment_by_points(
         self,
@@ -50,9 +42,6 @@ class SAMSegmentation:
             - scores: (N,) confidence scores
             - logits: (N, H, W) raw logits
         """
-        if self._current_image is None:
-            raise ValueError("No image set. Call set_image() first.")
-        
         point_coords_np = np.array(point_coords)
         point_labels_np = np.array(point_labels)
         
@@ -80,9 +69,6 @@ class SAMSegmentation:
         Returns:
             Tuple of (masks, scores, logits)
         """
-        if self._current_image is None:
-            raise ValueError("No image set. Call set_image() first.")
-        
         box_np = np.array(box)
         
         logger.info(f"📦 Segmenting with box: {box}")
@@ -112,6 +98,10 @@ class SAMSegmentation:
         Returns:
             Best mask (H, W)
         """
+        if masks is None or len(masks) == 0:
+            logger.warning("⚠️ No masks provided to get_best_mask")
+            return np.array([])
+
         if prefer_larger:
             # Calculate mask areas
             areas = np.array([mask.sum() for mask in masks])
@@ -156,9 +146,6 @@ class SAMSegmentation:
             - combined_mask: mask OR của tất cả object (H, W) bool
             - avg_confidence: trung bình confidence score
         """
-        if self._current_image is None:
-            raise ValueError("No image set. Call set_image() first.")
-
         foreground_pts = [
             (coord, label)
             for coord, label in zip(point_coords, point_labels)
@@ -190,6 +177,9 @@ class SAMSegmentation:
             )
 
             best_mask = self.get_best_mask(masks, scores, prefer_larger=True)
+            if best_mask.size == 0:
+                continue
+                
             best_score = float(np.max(scores))
             confidences.append(best_score)
 

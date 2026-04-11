@@ -3,6 +3,7 @@ Dependency injection for FastAPI
 Models are loaded once and injected into endpoints
 """
 import torch
+import numpy as np
 from pathlib import Path
 from functools import lru_cache
 from segment_anything import sam_model_registry, SamPredictor
@@ -17,6 +18,7 @@ class ModelManager:
     _instance = None
     _sam_predictor = None
     _device = None
+    _current_image_id = None # Cache for the currently loaded image features
     
     def __new__(cls):
         if cls._instance is None:
@@ -26,6 +28,22 @@ class ModelManager:
     def __init__(self):
         if self._device is None:
             self._initialize_runtime()
+
+    def set_predictor_image(self, image_id: str, image_np: np.ndarray):
+        """
+        Set image in SAM predictor with caching logic.
+        Only runs the heavy encoder if the image_id has changed.
+        """
+        predictor = self.sam_predictor # This ensures model is loaded
+        
+        if self._current_image_id == image_id:
+            logger.info(f"⚡ SAM Cache Hit: Reusing embedding for image {image_id}")
+            return
+            
+        logger.info(f"🔄 SAM Cache Miss: Computing embedding for image {image_id}")
+        predictor.set_image(image_np)
+        self._current_image_id = image_id
+        logger.info(f"✅ Embedding computed and cached for {image_id}")
     
     def _initialize_runtime(self):
         """Initialize runtime info without loading heavy models."""

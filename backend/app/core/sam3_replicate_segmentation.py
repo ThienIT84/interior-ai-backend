@@ -104,24 +104,37 @@ class Sam3ReplicateSegmentation:
         return mask_np > 127
 
     def _extract_mask_url(self, output: Any) -> Optional[str]:
-        if isinstance(output, str):
-            return output if output.startswith("http") else None
-
-        if isinstance(output, list):
-            for item in output:
-                url = self._extract_mask_url(item)
-                if url:
-                    return url
+        if not output:
             return None
 
+        # 1. Nếu là string hoặc object có thể ép kiểu về URL string
+        output_str = str(output)
+        if output_str.startswith("http"):
+            return output_str
+
+        # 2. Nếu là list/iterator (Replicate thường trả về Generator)
+        if isinstance(output, (list, tuple)) or hasattr(output, "__iter__"):
+            # Tránh lặp vô hạn nếu output chính là string (đã xử lý ở trên)
+            if not isinstance(output, (str, bytes)):
+                try:
+                    for item in output:
+                        url = self._extract_mask_url(item)
+                        if url:
+                            return url
+                except Exception:
+                    pass
+
+        # 3. Nếu là dict
         if isinstance(output, dict):
-            candidate_keys = ["mask", "mask_url", "output", "image", "result", "segmentation", "masks"]
+            # Ưu tiên các key phổ biến
+            candidate_keys = ["mask", "mask_url", "output", "url", "image", "result", "segmentation", "masks"]
             for key in candidate_keys:
                 if key in output:
                     url = self._extract_mask_url(output[key])
                     if url:
                         return url
 
+            # Thử mọi value khác
             for value in output.values():
                 url = self._extract_mask_url(value)
                 if url:
