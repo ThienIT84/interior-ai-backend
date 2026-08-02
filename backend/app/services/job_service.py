@@ -56,7 +56,7 @@ class JobService:
             job_id: Unique job identifier
         """
         job_id = str(uuid.uuid4())
-        
+
         job_data = {
             "job_id": job_id,
             "job_type": job_type,
@@ -76,7 +76,7 @@ class JobService:
         redis_key = f"{settings.REDIS_KEY_PREFIX}{job_id}"
         self.redis_client.hset(redis_key, mapping=job_data)
         self.redis_client.expire(redis_key, settings.JOB_EXPIRY_SECONDS)
-        
+
         logger.info(f"✅ Job created: {job_id} (type: {job_type})")
         return job_id
 
@@ -92,7 +92,7 @@ class JobService:
         """
         redis_key = f"{settings.REDIS_KEY_PREFIX}{job_id}"
         job_data = self.redis_client.hgetall(redis_key)
-        
+
         if not job_data:
             logger.warning(f"⚠️ Job not found: {job_id}")
             return None
@@ -111,6 +111,7 @@ class JobService:
         job_id: str,
         status: Optional[str] = None,
         progress: Optional[float] = None,
+        result_id: Optional[str] = None,
         result_url: Optional[str] = None,
         error: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -130,7 +131,7 @@ class JobService:
             Success flag
         """
         redis_key = f"{settings.REDIS_KEY_PREFIX}{job_id}"
-        
+
         update_data = {
             "updated_at": datetime.utcnow().isoformat(),
         }
@@ -142,6 +143,9 @@ class JobService:
 
         if progress is not None:
             update_data["progress"] = min(max(progress, 0.0), 1.0)
+
+        if result_id is not None:
+            update_data["result_id"] = result_id
 
         if result_url is not None:
             update_data["result_url"] = result_url
@@ -205,7 +209,7 @@ class JobService:
         jobs = []
         for key in keys[:limit]:
             job_data = self.redis_client.hgetall(key)
-            
+
             # Apply filters
             if status and job_data.get("status") != status:
                 continue
@@ -267,7 +271,7 @@ class JobService:
         for key in keys:
             job_data = self.redis_client.hgetall(key)
             created_at_str = job_data.get("created_at")
-            
+
             if not created_at_str:
                 continue
 

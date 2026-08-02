@@ -2,11 +2,10 @@
 Dependency injection for FastAPI
 Models are loaded once and injected into endpoints
 """
-import torch
 import numpy as np
 from pathlib import Path
 from functools import lru_cache
-from segment_anything import sam_model_registry, SamPredictor
+from typing import Any
 
 from app.config import settings
 from app.utils.logger import logger
@@ -14,17 +13,17 @@ from app.utils.logger import logger
 
 class ModelManager:
     """Singleton class to manage AI models"""
-    
+
     _instance = None
     _sam_predictor = None
     _device = None
     _current_image_id = None # Cache for the currently loaded image features
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self):
         if self._device is None:
             self._initialize_runtime()
@@ -35,20 +34,24 @@ class ModelManager:
         Only runs the heavy encoder if the image_id has changed.
         """
         predictor = self.sam_predictor # This ensures model is loaded
-        
+
         if self._current_image_id == image_id:
             logger.info(f"⚡ SAM Cache Hit: Reusing embedding for image {image_id}")
             return
-            
+
         logger.info(f"🔄 SAM Cache Miss: Computing embedding for image {image_id}")
         predictor.set_image(image_np)
         self._current_image_id = image_id
         logger.info(f"✅ Embedding computed and cached for {image_id}")
-    
+
     def _initialize_runtime(self):
         """Initialize runtime info without loading heavy models."""
-        # Detect device
-        self._device = "cuda" if torch.cuda.is_available() else "cpu"
+        try:
+            import torch
+            self._device = "cuda" if torch.cuda.is_available() else "cpu"
+        except ImportError:
+            self._device = "cpu"
+            logger.warning("torch is not installed; local SAM will be unavailable")
         logger.info(f"🚀 Runtime initialized on device: {self._device}")
 
     def _resolve_checkpoint_path(self) -> Path:
@@ -78,7 +81,15 @@ class ModelManager:
                 f"SAM checkpoint not found at: {checkpoint_path}. "
                 "Set SAM_CHECKPOINT_PATH or place checkpoint in backend/weights/."
             )
-        
+
+        try:
+            from segment_anything import SamPredictor, sam_model_registry
+        except ImportError as exc:
+            raise RuntimeError(
+                "Local SAM requires torch and segment-anything. "
+                "Install the full backend requirements or use SEGMENTATION_BACKEND=sam3_replicate."
+            ) from exc
+
         logger.info(f"📦 Loading local SAM from: {checkpoint_path}")
         sam = sam_model_registry["vit_b"](checkpoint=str(checkpoint_path))
         sam.to(device=self._device)
@@ -89,13 +100,13 @@ class ModelManager:
     def is_sam_loaded(self) -> bool:
         """Whether local SAM is already loaded in memory."""
         return self._sam_predictor is not None
-    
+
     @property
-    def sam_predictor(self) -> SamPredictor:
+    def sam_predictor(self) -> Any:
         """Get SAM predictor instance (loads lazily on first use)."""
         self._load_sam_if_needed()
         return self._sam_predictor
-    
+
     @property
     def device(self) -> str:
         """Get current device"""

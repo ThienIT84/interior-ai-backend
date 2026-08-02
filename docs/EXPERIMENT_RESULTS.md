@@ -64,6 +64,8 @@ For each image:
 
 ## Success Rate Template (Fill before defense)
 
+Detailed 10-image protocol: [BENCHMARK_PROTOCOL.md](BENCHMARK_PROTOCOL.md)
+
 | Flow | Attempts | Success | Success Rate |
 |---|---:|---:|---:|
 | Segmentation | 10 | TBD | TBD |

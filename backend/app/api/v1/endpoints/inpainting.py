@@ -93,6 +93,7 @@ class JobStatusResponse(BaseModel):
     job_id: str
     status: str  # "pending", "processing", "completed", "failed"
     progress: Optional[float] = None
+    result_id: Optional[str] = None
     result_url: Optional[str] = None
     error: Optional[str] = None
     metadata: Optional[dict] = None
@@ -266,18 +267,18 @@ async def remove_object_async(
 ):
     """
     Remove object from image using inpainting (asynchronous)
-    
+
     This endpoint submits the job and returns immediately.
     Use /job-status/{job_id} to check progress.
-    
+
     Job state is persisted in Redis and survives backend restarts.
     """
     # Create job in Redis
     job_id = job_service.create_job(
         job_type="inpainting",
-        payload=request.dict(),
+        payload=request.model_dump(),
     )
-    
+
     # Add background task
     background_tasks.add_task(
         _process_inpainting_job,
@@ -285,9 +286,9 @@ async def remove_object_async(
         request=request,
         job_service=job_service,
     )
-    
+
     logger.info(f"✅ Created async job: {job_id}")
-    
+
     return InpaintJobResponse(
         job_id=job_id,
         status="pending",
@@ -302,19 +303,20 @@ async def get_job_status(
 ):
     """Get status of async inpainting job from Redis"""
     logger.info(f"🔍 Checking job status: {job_id}")
-    
+
     job = job_service.get_job(job_id)
     if not job:
         logger.warning(f"❌ Job not found: {job_id}")
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
-    
+
     progress = float(job.get("progress", 0.0))
     logger.info(f"✅ Job {job_id} found: status={job['status']}, progress={progress*100:.1f}%")
-    
+
     return JobStatusResponse(
         job_id=job_id,
         status=job["status"],
         progress=progress,
+        result_id=job.get("result_id") or job.get("metadata", {}).get("result_id"),
         result_url=job.get("result_url"),
         error=job.get("error"),
         metadata=job.get("metadata"),
@@ -325,14 +327,14 @@ async def get_job_status(
 async def get_result_image(result_id: str):
     """Get inpainting result image"""
     from fastapi.responses import FileResponse
-    
+
     # Find result file
     result_files = list(settings.OUTPUTS_DIR.glob(f"*_{result_id}.png"))
     if not result_files:
         raise HTTPException(status_code=404, detail=f"Result not found: {result_id}")
-    
+
     result_path = result_files[0]
-    
+
     return FileResponse(
         result_path,
         media_type="image/png",
@@ -468,6 +470,7 @@ async def _process_inpainting_job(
             job_id,
             status=JobStatus.COMPLETED.value,
             progress=1.0,
+            result_id=result_id,
             result_url=f"/api/v1/inpainting/result/{result_id}",
             metadata=metadata_full,
         )

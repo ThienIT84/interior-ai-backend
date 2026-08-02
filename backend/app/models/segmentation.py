@@ -1,7 +1,7 @@
 """
 Pydantic models for segmentation endpoints
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Tuple, Optional
 
 
@@ -14,6 +14,20 @@ class PointPrompt(BaseModel):
 
 class SegmentationRequest(BaseModel):
     """Request model for segmentation with points"""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "image_id": "abc123-def456",
+                "points": [
+                    {"x": 100, "y": 150, "label": 1},
+                ],
+                "segmentation_backend": "sam3_replicate",
+                "text_prompt": "sofa",
+            }
+        }
+    )
+
     image_id: str = Field(..., description="ID of previously uploaded image")
     points: List[PointPrompt] = Field(..., description="List of point prompts")
     segmentation_backend: Optional[str] = Field(
@@ -25,19 +39,6 @@ class SegmentationRequest(BaseModel):
         description='Text description of the object to segment — used by SAM3 to guide detection. '
                     'E.g. "sofa", "chair", "table lamp". Falls back to "object" if omitted.'
     )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "image_id": "abc123-def456",
-                "points": [
-                    {"x": 100, "y": 150, "label": 1},
-                ],
-                "segmentation_backend": "sam3_replicate",
-                "text_prompt": "sofa"
-            }
-        }
-
 
 class BoxPrompt(BaseModel):
     """Bounding box prompt for segmentation"""

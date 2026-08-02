@@ -20,7 +20,7 @@ Frontend:
   [ ] Upload ảnh hoạt động
   [ ] Segmentation UI hoạt động
   [ ] Inpainting progress hoạt động
-  [ ] Không có hardcoded IPs (dùng config.dart)
+  [ ] Không có hardcoded IPs (dùng API_BASE_URL qua --dart-define)
 
 Documentation:
   [ ] README.md đã update

@@ -10,4 +10,4 @@ echo "⚠️  Changes to code will NOT auto-reload"
 echo "   Press Ctrl+C to stop, then restart manually"
 echo ""
 
-~/miniconda3/envs/interior_ai/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000

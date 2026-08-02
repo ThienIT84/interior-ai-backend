@@ -18,7 +18,7 @@ import threading
 from typing import Optional
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from PIL import Image, ImageDraw
@@ -32,7 +32,7 @@ from app.core.edge_detection import (
     validate_image_for_edges,
 )
 from app.core.prompts import list_styles, AVAILABLE_STYLES, get_furniture_placement_prompt
-from app.services.job_service import get_job_service, JobStatus
+from app.services.job_service import JobService, get_job_service, JobStatus
 from app.utils.logger import logger
 
 router = APIRouter()
@@ -249,6 +249,7 @@ class JobStatusResponse(BaseModel):
     job_id: str
     status: str  # "pending" | "processing" | "completed" | "failed"
     style: str
+    progress: Optional[float] = None
     result_url: Optional[str] = None
     result_id: Optional[str] = None
     processing_time: Optional[float] = None
@@ -416,6 +417,7 @@ async def get_job_status(job_id: str):
         job_id=job.job_id,
         status=job.status,
         style=job.style,
+        progress=job.progress,
         result_url=job.result_url,
         result_id=job.result_id,
         processing_time=job.processing_time,
@@ -483,14 +485,17 @@ class PlacementJobStatusResponse(BaseModel):
     job_id: str
     status: str
     furniture_description: str
+    progress: Optional[float] = None
     result_url: Optional[str] = None
     result_id: Optional[str] = None
     processing_time: Optional[float] = None
     error: Optional[str] = None
+    metadata: Optional[dict] = None
 
 
 def _run_placement(
     job_id: str,
+    job_service: JobService,
     image: Image.Image,
     bbox_x: float,
     bbox_y: float,
@@ -499,7 +504,6 @@ def _run_placement(
     furniture_description: str,
 ) -> None:
     """Background thread: tao mask tu bbox, chay inpainting, cap nhat job trong Redis."""
-    job_service = get_job_service()
     job_service.update_job(job_id, status=JobStatus.PROCESSING.value, progress=0.2)
     start_time = time.time()
     logger.info(
@@ -575,18 +579,19 @@ def _run_placement(
 
         processing_time = time.time() - start_time
         result_url_local = f"/api/v1/generation/placement-result/{result_id}"
-        
+
         job_service.update_job(
             job_id,
             status=JobStatus.COMPLETED.value,
             progress=1.0,
+            result_id=result_id,
             result_url=result_url_local,
             metadata={
                 "result_id": result_id,
                 "processing_time": processing_time
             }
         )
-        
+
         logger.info(
             f"✅ [placement job={job_id}] Done | result_id={result_id} "
             f"| time={processing_time:.1f}s"
@@ -604,7 +609,10 @@ def _run_placement(
 
 
 @router.post("/place-furniture", response_model=PlaceFurnitureResponse)
-async def place_furniture(request: PlaceFurnitureRequest):
+async def place_furniture(
+    request: PlaceFurnitureRequest,
+    job_service: JobService = Depends(get_job_service),
+):
     """
     Option 1 – Targeted Placement: dat do noi that vao vung nguoi dung chon.
 
@@ -652,7 +660,6 @@ async def place_furniture(request: PlaceFurnitureRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Khong the doc anh: {e}")
 
-    job_service = get_job_service()
     job_id = job_service.create_job(
         job_type="placement",
         payload={
@@ -665,7 +672,7 @@ async def place_furniture(request: PlaceFurnitureRequest):
     t = threading.Thread(
         target=_run_placement,
         args=(
-            job_id, image,
+            job_id, job_service, image,
             request.bbox_x, request.bbox_y, request.bbox_w, request.bbox_h,
             request.furniture_description,
         ),
@@ -688,28 +695,32 @@ async def place_furniture(request: PlaceFurnitureRequest):
 
 
 @router.get("/placement-job-status/{job_id}", response_model=PlacementJobStatusResponse)
-async def get_placement_job_status(job_id: str):
+async def get_placement_job_status(
+    job_id: str,
+    job_service: JobService = Depends(get_job_service),
+):
     """Kiem tra trang thai cua mot furniture placement job."""
-    job_service = get_job_service()
     job_data = job_service.get_job(job_id)
-    
+
     if job_data is None:
         raise HTTPException(
             status_code=404,
             detail=f"Khong tim thay placement job_id='{job_id}'.",
         )
-        
+
     payload = job_data.get("payload", {})
     metadata = job_data.get("metadata", {})
-    
+
     return PlacementJobStatusResponse(
         job_id=job_id,
         status=job_data.get("status"),
         furniture_description=payload.get("furniture_description", "unknown"),
+        progress=float(job_data.get("progress", 0.0)),
         result_url=job_data.get("result_url"),
-        result_id=metadata.get("result_id"),
+        result_id=job_data.get("result_id") or metadata.get("result_id"),
         processing_time=metadata.get("processing_time"),
         error=job_data.get("error"),
+        metadata=metadata,
     )
 
 

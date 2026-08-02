@@ -20,7 +20,7 @@ FastAPI Backend (WSL/Linux)
   - SAM segmentation (local/cloud)
   - Inpainting service (lama/replicate/local)
   - ControlNet generation
-  - Redis job persistence (inpainting async)
+  - Redis job persistence (inpainting/generation/placement async)
 ```
 
 ## 📊 Trạng Thái Hiện Tại (04/2026)
@@ -28,26 +28,22 @@ FastAPI Backend (WSL/Linux)
 | Module | Trang thai MVP | Production-ready | Ghi chu |
 |---|---|---|---|
 | Segmentation (SAM local + SAM3 cloud) | ✅ Có | ⏳ Chưa | SAM3 cloud hiện tại ưu tiên text prompt |
-| Inpainting (LaMa/Replicate/Local fallback) | ✅ Có | ⏳ Chưa | Async cần Redis, chất lượng phụ thuộc mask |
-| Generation (ControlNet + placement) | ✅ Có | ⏳ Chưa | Job generation đang lưu in-memory |
+| Inpainting (LaMa/Replicate/Local fallback) | ✅ Có | ⏳ Chưa | Async dùng Redis, chất lượng phụ thuộc mask |
+| Generation (ControlNet + placement) | ✅ Có | ⏳ Chưa | Job generation/placement dùng Redis |
 | AR | ⏳ Chưa | ⏳ Chưa | Để ở scope tương lai |
 
 ## 📁 Cấu trúc Dự án
 
 ```
-interior_project/
+interior_ai/backend/
 ├── backend/              # Python FastAPI Backend
 │   ├── app/             # Application code
+│   ├── tests/           # Backend smoke/contract tests
 │   ├── weights/         # Model checkpoints
 │   ├── data/            # Data storage
-│   └── notebooks/       # Experiments
-│
-├── frontend/            # Flutter Mobile App
-│   └── lib/            # Dart code
-│
-├── docs/               # Documentation
-├── scripts/            # Utility scripts
-└── .kiro/             # Kiro AI configuration
+│   └── Dockerfile
+├── docs/                # Documentation
+└── docker-compose.yml   # Redis + backend service
 ```
 
 ## 🚀 Quick Start
@@ -55,20 +51,21 @@ interior_project/
 ### 1) Backend Setup
 
 ```bash
-cd backend
+cd /home/tran_thien/workspace/interior_ai/backend/backend
 pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**Lưu ý**: Nếu dùng endpoint async inpainting (`/api/v1/inpainting/remove-object-async`) thì cần chạy Redis:
+**Lưu ý**: Nếu dùng endpoint async inpainting/generation/placement thì cần chạy Redis:
 
 ```bash
-# Tại thư mục gốc project
+# Tại thư mục /home/tran_thien/workspace/interior_ai/backend
 docker compose up -d redis
 ```
 
-Chạy server:
+Chạy server từ thư mục backend canonical:
 ```bash
+cd /home/tran_thien/workspace/interior_ai/backend/backend
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 Swagger UI: `http://localhost:8000/docs`
@@ -76,9 +73,10 @@ Swagger UI: `http://localhost:8000/docs`
 ### 2) Frontend Setup
 
 ```bash
-cd frontend
+cd /home/tran_thien/workspace/interior_ai/frontend
 flutter pub get
-flutter run
+flutter run -d web-server --web-hostname=0.0.0.0 --web-port=8080 \
+  --dart-define=API_BASE_URL=http://localhost:8000
 ```
 
 ### 3) Port Forwarding (Windows → WSL)
@@ -90,7 +88,7 @@ flutter run
 
 ## 🎯 Roadmap 4 Tuần
 
-### Tuần 1: SAM Segmentation ✅ 
+### Tuần 1: SAM Segmentation ✅
 - [x] Restructure codebase
 - [x] Interactive segmentation với click points
 - [x] Generate và save masks
