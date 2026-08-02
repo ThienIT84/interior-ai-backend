@@ -11,10 +11,10 @@
 
 Android Phone          Windows Host              WSL Ubuntu
 ─────────────          ────────────              ──────────
-                                                  
+
 Flutter App    ←→    Port Proxy    ←→    FastAPI Backend
 (Mobile)            (Windows)              (Python)
-                                           
+
 Port: 8000          Port: 8000            Port: 8000
 IP: 192.168.1.x     IP: 192.168.1.12      IP: 172.22.105.141
                     (WiFi LAN)            (WSL internal)
@@ -112,12 +112,9 @@ netsh interface portproxy show v4tov4
 
 #### Option 1: USB Connection (Hiện tại KHÔNG dùng)
 
-```dart
-// config.dart
-static const String _backendUrl = "http://localhost:8000";
-
-// Setup ADB reverse
-// adb reverse tcp:8000 tcp:8000
+```bash
+adb reverse tcp:8000 tcp:8000
+flutter run --dart-define=API_BASE_URL=http://localhost:8000
 ```
 
 **Cách hoạt động:**
@@ -138,9 +135,8 @@ Android:localhost:8000 → ADB reverse → Windows:8000 → Port proxy → WSL:8
 
 #### Option 2: WiFi Connection (Đang dùng)
 
-```dart
-// config.dart
-static const String _backendUrl = "http://192.168.1.12:8000";
+```bash
+flutter run --dart-define=API_BASE_URL=http://192.168.1.12:8000
 ```
 
 **Cách hoạt động:**
@@ -250,20 +246,12 @@ curl http://localhost:8000/api/v1/health
 
 ---
 
-### Bước 6: Update Flutter Config
+### Bước 6: Chạy Flutter với API URL
 
-```dart
-// frontend/lib/config.dart
+Không sửa source code. Truyền URL backend khi chạy:
 
-class AppConfig {
-  // Option 1: USB với ADB reverse
-  // static const String _backendUrl = "http://localhost:8000";
-  
-  // Option 2: WiFi (đang dùng)
-  static const String _backendUrl = "http://192.168.1.12:8000";
-  
-  static String get baseUrl => _backendUrl;
-}
+```bash
+flutter run --dart-define=API_BASE_URL=http://192.168.1.12:8000
 ```
 
 ---
@@ -311,10 +299,9 @@ curl http://localhost:8000/api/v1/health
 - Timeout setting quá ngắn
 
 **Giải pháp:**
-```dart
-// config.dart
-static const Duration receiveTimeout = Duration(minutes: 26);
-```
+- Các tác vụ dài chạy theo job và được Flutter polling trạng thái.
+- Timeout HTTP dùng chung nằm trong `frontend/lib/core/constants/app_config.dart`.
+- Kiểm tra backend/Redis trước khi tăng timeout phía client.
 
 ---
 
@@ -359,26 +346,14 @@ netsh interface portproxy add v4tov4 `
 # 1. Lấy IP mới
 ipconfig | findstr "IPv4"
 
-# 2. Update Flutter config
-# frontend/lib/config.dart
-static const String _backendUrl = "http://NEW_IP:8000";
-
-# 3. Rebuild app
-flutter run
+# 2. Chạy lại Flutter với IP mới
+flutter run --dart-define=API_BASE_URL=http://NEW_IP:8000
 ```
 
 **Tự động hóa:**
-```dart
-// config.dart - Dynamic IP (advanced)
-static String get baseUrl {
-  if (kDebugMode) {
-    // Development: Tự động detect
-    return "http://${_getWindowsIP()}:8000";
-  } else {
-    // Production: Hardcoded
-    return "http://api.yourapp.com";
-  }
-}
+```text
+Đối với local development, ưu tiên localhost qua ADB reverse hoặc truyền
+API_BASE_URL rõ ràng bằng --dart-define.
 ```
 
 ---
@@ -394,7 +369,7 @@ static String get baseUrl {
 
 1. User clicks "Upload Image" in Flutter app
    │
-   ├─> Flutter: ApiService.uploadImage()
+   ├─> Flutter: RemoteDataSource.uploadImage()
    │   POST http://192.168.1.12:8000/api/v1/segmentation/upload
    │
    ├─> Android WiFi: Send HTTP request to 192.168.1.12:8000
@@ -485,19 +460,9 @@ app.add_middleware(
 
 ### 3. Production Deployment
 
-```dart
-// config.dart
-class AppConfig {
-  static String get baseUrl {
-    if (kReleaseMode) {
-      // Production: HTTPS với domain
-      return "https://api.yourapp.com";
-    } else {
-      // Development: Local IP
-      return "http://192.168.1.12:8000";
-    }
-  }
-}
+```bash
+flutter build web --release \
+  --dart-define=API_BASE_URL=https://api.yourapp.com
 ```
 
 ---
@@ -529,32 +494,32 @@ class AppConfig {
 ### Phần System Architecture
 
 > **3.2 Network Architecture**
-> 
+>
 > Hệ thống sử dụng kiến trúc client-server với 3 layers:
-> 
+>
 > 1. **Client Layer (Flutter Mobile App)**
 >    - Chạy trên Android device
 >    - Giao tiếp qua HTTP REST API
 >    - IP: 192.168.1.x (WiFi LAN)
-> 
+>
 > 2. **Proxy Layer (Windows Host)**
 >    - Windows Port Proxy forward requests
 >    - IP: 192.168.1.12 (WiFi LAN)
 >    - Port: 8000
 >    - Firewall rules cho local network access
-> 
+>
 > 3. **Server Layer (WSL Ubuntu)**
 >    - FastAPI backend với Python
 >    - IP: 172.22.105.141 (WSL virtual network)
 >    - Port: 8000
 >    - Host: 0.0.0.0 (accept external connections)
-> 
+>
 > **Network Flow:**
 > ```
-> Android (192.168.1.x) → WiFi → Windows (192.168.1.12) 
+> Android (192.168.1.x) → WiFi → Windows (192.168.1.12)
 >   → Port Proxy → WSL (172.22.105.141) → FastAPI
 > ```
-> 
+>
 > **Lý do sử dụng WSL:**
 > - GPU support cho CUDA (SAM, Stable Diffusion)
 > - Linux environment cho Python ML libraries

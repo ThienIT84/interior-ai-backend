@@ -7,8 +7,8 @@ Backend API cho he thong AI Interior Design (FastAPI + SAM + Inpainting + Contro
 | Capability | MVP | Production-ready | Notes |
 |---|---|---|---|
 | Segmentation API | Yes | No | Local SAM + SAM3 cloud mode |
-| Inpainting API (sync/async) | Yes | No | Async inpainting requires Redis |
-| Generation API | Yes | No | Some generation jobs are in-memory |
+| Inpainting API (sync/async) | Yes | No | Async jobs are Redis-backed |
+| Generation API | Yes | No | Design and placement jobs are Redis-backed |
 | Automated smoke tests | Yes | No | Baseline coverage only |
 
 ## Core Features
@@ -37,7 +37,7 @@ Backend API cho he thong AI Interior Design (FastAPI + SAM + Inpainting + Contro
 ## Setup
 
 ```bash
-cd /home/tran_thien/interior_project/backend
+cd /home/tran_thien/workspace/interior_ai/backend/backend
 pip install -r requirements.txt
 cp .env.example .env
 ```
@@ -45,7 +45,7 @@ cp .env.example .env
 Place SAM checkpoint in `weights/`:
 
 ```text
-backend/weights/sam_vit_b_01ec64.pth
+weights/sam_vit_b_01ec64.pth
 ```
 
 ## Run
@@ -53,7 +53,7 @@ backend/weights/sam_vit_b_01ec64.pth
 Start Redis from project root:
 
 ```bash
-cd /home/tran_thien/interior_project
+cd /home/tran_thien/workspace/interior_ai/backend
 docker compose up -d redis
 ```
 
@@ -73,7 +73,7 @@ redis-cli -h 127.0.0.1 -p 6380 --scan --pattern 'interior_job:*'
 Run backend:
 
 ```bash
-cd /home/tran_thien/interior_project/backend
+cd /home/tran_thien/workspace/interior_ai/backend/backend
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -86,14 +86,16 @@ API docs:
 Run smoke tests:
 
 ```bash
-cd /home/tran_thien/interior_project/backend
-python -m pytest tests -q
+cd /home/tran_thien/workspace/interior_ai/backend
+python -m pytest
 ```
 
 Current smoke test scope:
 - Health contract
 - Segmentation request/schema contract
 - Async inpainting job submission contract
+- Generation job submission/status contract
+- Placement job submission/status contract
 
 ## Configuration Notes
 
@@ -103,7 +105,7 @@ Current smoke test scope:
 
 ## Known Limitations
 
-1. Generation job persistence is not fully Redis-backed yet.
+1. Redis must be running for async job submission/status endpoints.
 2. Inpainting quality depends strongly on mask quality.
 3. Local SD path is slow on 4GB VRAM GPUs.
 

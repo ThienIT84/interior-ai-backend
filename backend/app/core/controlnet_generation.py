@@ -77,6 +77,7 @@ class GenerationJob:
         self.job_id: str = job_id
         self.style: str = style
         self.status: str = status
+        self.progress: float = 0.0
         self.result_url: Optional[str] = None
         self.result_id: Optional[str] = None
         self.error: Optional[str] = None
@@ -93,15 +94,19 @@ class GenerationJob:
             style=payload.get("style", "unknown"),
             status=data.get("status", "pending")
         )
+        try:
+            job.progress = float(data.get("progress", 0.0))
+        except (TypeError, ValueError):
+            job.progress = 0.0
         job.result_url = data.get("result_url")
-        job.result_id = data.get("metadata", {}).get("result_id")
+        job.result_id = data.get("result_id") or data.get("metadata", {}).get("result_id")
         job.error = data.get("error")
         job.metadata = data.get("metadata", {})
-        
+
         # Parse processing time if available
         if "processing_time" in job.metadata:
             job.processing_time = job.metadata["processing_time"]
-            
+
         return job
 
 
@@ -406,10 +411,10 @@ class ControlNetGeneration:
         """Background thread: thuc hien generation va cap nhat job status trong Redis."""
         model_display = MODEL_CONFIGS[model_id]["display_name"]
         start_time = time.time()
-        
+
         self.job_service.update_job(
-            job.job_id, 
-            status=JobStatus.PROCESSING.value, 
+            job.job_id,
+            status=JobStatus.PROCESSING.value,
             progress=0.1,
             metadata={"status_message": f"Đang chuẩn bị ({model_display})..."}
         )
@@ -428,7 +433,7 @@ class ControlNetGeneration:
                 progress=0.3,
                 metadata={"status_message": f"AI đang vẽ thiết kế ({model_display})..."}
             )
-            
+
             result_image, metadata = self.generate_with_controlnet(
                 image=image,
                 edges=None,
@@ -454,9 +459,10 @@ class ControlNetGeneration:
                 job.job_id,
                 status=JobStatus.COMPLETED.value,
                 progress=1.0,
+                result_id=result_id,
                 result_url=result_url,
                 metadata={
-                    "result_id": result_id, 
+                    "result_id": result_id,
                     "status_message": "Hoàn tất!",
                     **metadata
                 }

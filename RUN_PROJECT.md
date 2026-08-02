@@ -39,7 +39,7 @@
 ### Bước 1: Mở terminal WSL
 ```bash
 # Mở Ubuntu terminal hoặc dùng VS Code WSL terminal
-cd ~/interior_project/backend
+cd ~/workspace/interior_ai/backend/backend
 ```
 
 ### Bước 2: Kích hoạt môi trường conda
@@ -133,11 +133,10 @@ hostname -I
 netsh interface portproxy add v4tov4 listenport=8000 listenaddress=0.0.0.0 connectport=8000 connectaddress=<WSL_IP>
 ```
 
-**Bước 3 — Cập nhật IP trong Flutter:**
-Mở `frontend/lib/config.dart`, uncomment dòng WiFi IP:
-```dart
-// return "http://localhost:8000";         // ADB reverse
-return "http://192.168.1.XX:8000";         // WiFi - thay XX bằng IP Windows
+**Bước 3 — Truyền API URL khi chạy Flutter:**
+Không sửa source code. Truyền địa chỉ backend bằng `dart-define`:
+```bash
+flutter run --dart-define=API_BASE_URL=http://192.168.1.XX:8000
 ```
 
 ---
@@ -179,7 +178,7 @@ Terminal 1 (WSL):                       Terminal 2 (Windows):
 cd ~/interior_project/backend           cd D:\interior_ai\frontend
 conda activate interior_ai             adb reverse tcp:8000 tcp:8000
 bash run_backend_stable.sh              flutter run --release
-                                        
+
 ↓ Chờ "✅ Models loaded"                ↓ App chạy trên điện thoại
 ↓ Chờ "✅ SD model pre-loaded"          ↓ Sẵn sàng sử dụng!
 ```
@@ -214,11 +213,12 @@ interior_project/                     # Root (WSL)
 D:\interior_ai\frontend\             # Frontend (Windows)
 ├── lib/
 │   ├── main.dart                   # App entry point
-│   ├── config.dart                 # API URL config
-│   ├── screens/                    # UI screens
-│   ├── services/                   # API service layer
-│   └── models/                     # Data models
+│   ├── core/                       # Config, theme, platform services
+│   ├── data/                       # API data source and models
+│   └── presentation/               # Feature-based UI and providers
 ├── android/                        # Android build config
+├── web/                            # Web runner
+├── test/                           # Automated tests
 ├── pubspec.yaml                    # Flutter dependencies
 └── ...
 ```
