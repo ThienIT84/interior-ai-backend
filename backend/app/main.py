@@ -4,12 +4,14 @@ Refactored with clean architecture
 """
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from app.config import settings, ensure_directories
 from app.dependencies import get_model_manager
 from app.api.v1.router import api_router
 from app.utils.logger import logger
+from app.services.job_service import JobStoreUnavailableError
 
 
 @asynccontextmanager
@@ -20,7 +22,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("🚀 Starting AI Interior Design Backend...")
     ensure_directories()
-    
+
     # Initialize runtime manager (lazy-loads local SAM only when needed)
     model_manager = get_model_manager()
     logger.info(f"✅ Runtime ready on device: {model_manager.device}")
@@ -32,14 +34,14 @@ async def lifespan(app: FastAPI):
         logger.info(
             "☁️ Segmentation backend set to SAM3 Replicate; local SAM will only load if fallback is used"
         )
-    
+
     # Note: Stable Diffusion models are now lazy-loaded by hybrid inpainting service
     # - Replicate API: No local model needed
     # - Local GPU: Model loads on first request (saves RAM and startup time)
     logger.info("✅ Hybrid inpainting service ready (Replicate API + Local GPU fallback)")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("👋 Shutting down...")
 
@@ -50,6 +52,20 @@ app = FastAPI(
     version=settings.APP_VERSION,
     lifespan=lifespan
 )
+
+
+@app.exception_handler(JobStoreUnavailableError)
+async def job_store_unavailable_handler(request, error):
+    """Return a stable public error without leaking Redis connection details."""
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": {
+                "code": "redis_unavailable",
+                "message": str(error),
+            }
+        },
+    )
 
 # CORS middleware
 app.add_middleware(
@@ -71,7 +87,7 @@ async def predict_legacy(file: UploadFile = File(...)):
     Kept for backward compatibility with existing Flutter app
     """
     from app.api.v1.endpoints.segmentation import segment_image
-    
+
     return await segment_image(file, get_model_manager())
 
 
