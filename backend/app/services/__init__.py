@@ -1,4 +1,16 @@
 """Services module"""
-from app.services.job_service import JobService, get_job_service, JobStatus
+from app.services.job_service import (
+    JobService,
+    JobStatus,
+    JobStoreUnavailableError,
+    get_job_service,
+    is_redis_available,
+)
 
-__all__ = ["JobService", "get_job_service", "JobStatus"]
+__all__ = [
+    "JobService",
+    "JobStatus",
+    "JobStoreUnavailableError",
+    "get_job_service",
+    "is_redis_available",
+]

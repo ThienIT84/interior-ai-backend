@@ -1,17 +1,24 @@
 services:
   redis:
-    image: redis:latest
+    image: redis:7.0-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     ports:
-      - "127.0.0.1:6380:6379" # Host backend connects via localhost:6380, avoid conflict with local Redis
+      - "127.0.0.1:6380:6379"
     volumes:
-      - redis_data:/data # Persistence: Restart máy không mất Job
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   backend:
     build: ./backend
     ports:
       - "8000:8000"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     environment:
       - REDIS_URL=redis://redis:6379/0
 

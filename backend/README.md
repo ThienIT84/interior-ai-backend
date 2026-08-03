@@ -50,24 +50,33 @@ weights/sam_vit_b_01ec64.pth
 
 ## Run
 
-Start Redis from project root:
+Redis native in WSL is the default local job store:
 
 ```bash
-cd /home/tran_thien/workspace/interior_ai/backend
-docker compose up -d redis
+sudo systemctl enable --now redis-server
+redis-cli -h 127.0.0.1 -p 6379 ping
 ```
 
 For host-run backend, use this in `backend/.env`:
 
 ```text
-REDIS_URL=redis://127.0.0.1:6380/0
+REDIS_URL=redis://127.0.0.1:6379/0
 ```
 
 Quick verify:
 
 ```bash
-redis-cli -h 127.0.0.1 -p 6380 ping
-redis-cli -h 127.0.0.1 -p 6380 --scan --pattern 'interior_job:*'
+redis-cli -h 127.0.0.1 -p 6379 ping
+redis-cli -h 127.0.0.1 -p 6379 --scan --pattern 'interior_job:*'
+```
+
+Optional Docker Redis remains available on host port `6380`:
+
+```bash
+cd /home/tran_thien/workspace/interior_ai/backend
+docker compose up -d redis
+REDIS_URL=redis://127.0.0.1:6380/0 \
+  python -m uvicorn --app-dir backend app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Run backend:

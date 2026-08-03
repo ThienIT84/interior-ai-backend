@@ -56,11 +56,20 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**Lưu ý**: Nếu dùng endpoint async inpainting/generation/placement thì cần chạy Redis:
+Redis native trong WSL là mặc định cho local development:
 
 ```bash
-# Tại thư mục /home/tran_thien/workspace/interior_ai/backend
+sudo systemctl enable --now redis-server
+redis-cli -h 127.0.0.1 -p 6379 ping
+```
+
+Redis Docker là lựa chọn phụ và được map sang host port `6380`:
+
+```bash
+cd /home/tran_thien/workspace/interior_ai/backend
 docker compose up -d redis
+REDIS_URL=redis://127.0.0.1:6380/0 \
+  python -m uvicorn --app-dir backend app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Chạy server từ thư mục backend canonical:

@@ -4,13 +4,22 @@ Job service for managing async job persistence using Redis
 import json
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable, TypeVar
 from enum import Enum
 import redis
+from redis.exceptions import RedisError
 from app.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
+
+
+class JobStoreUnavailableError(RuntimeError):
+    """Raised when Redis cannot serve a background-job operation."""
+
+    def __init__(self) -> None:
+        super().__init__("Background job service is temporarily unavailable.")
 
 
 class JobStatus(str, Enum):
@@ -27,16 +36,45 @@ class JobService:
     Service for managing async jobs with Redis persistence
     """
 
-    def __init__(self):
+    def __init__(self, redis_client=None):
         """Initialize Redis connection"""
         try:
-            self.redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
-            # Test connection
-            self.redis_client.ping()
-            logger.info(f"✅ Redis connected: {settings.REDIS_URL}")
-        except Exception as e:
-            logger.error(f"❌ Redis connection failed: {e}")
-            raise
+            self.redis_client = redis_client or redis.from_url(
+                settings.REDIS_URL,
+                decode_responses=True,
+                socket_connect_timeout=1,
+                socket_timeout=5,
+            )
+            self._execute("connect", self.redis_client.ping)
+            logger.info("✅ Redis job store connected")
+        except RedisError as error:
+            logger.error("❌ Redis job store connection failed", exc_info=error)
+            raise JobStoreUnavailableError() from error
+
+    def _execute(self, operation: str, callback: Callable[[], T]) -> T:
+        """Run one Redis operation and expose a stable service-level error."""
+        try:
+            return callback()
+        except RedisError as error:
+            logger.error(
+                "❌ Redis job store operation failed: %s",
+                operation,
+                exc_info=error,
+            )
+            raise JobStoreUnavailableError() from error
+
+    def _write_hash(self, redis_key: str, mapping: Dict[str, Any]) -> None:
+        self._execute(
+            "write job",
+            lambda: self.redis_client.hset(redis_key, mapping=mapping),
+        )
+        self._execute(
+            "set job expiry",
+            lambda: self.redis_client.expire(
+                redis_key,
+                settings.JOB_EXPIRY_SECONDS,
+            ),
+        )
 
     def create_job(
         self,
@@ -74,8 +112,7 @@ class JobService:
         }
 
         redis_key = f"{settings.REDIS_KEY_PREFIX}{job_id}"
-        self.redis_client.hset(redis_key, mapping=job_data)
-        self.redis_client.expire(redis_key, settings.JOB_EXPIRY_SECONDS)
+        self._write_hash(redis_key, job_data)
 
         logger.info(f"✅ Job created: {job_id} (type: {job_type})")
         return job_id
@@ -91,7 +128,10 @@ class JobService:
             Job data dict or None if not found
         """
         redis_key = f"{settings.REDIS_KEY_PREFIX}{job_id}"
-        job_data = self.redis_client.hgetall(redis_key)
+        job_data = self._execute(
+            "read job",
+            lambda: self.redis_client.hgetall(redis_key),
+        )
 
         if not job_data:
             logger.warning(f"⚠️ Job not found: {job_id}")
@@ -161,14 +201,9 @@ class JobService:
                 merged_meta.update(metadata)
                 update_data["metadata"] = json.dumps(merged_meta)
 
-        try:
-            self.redis_client.hset(redis_key, mapping=update_data)
-            self.redis_client.expire(redis_key, settings.JOB_EXPIRY_SECONDS)
-            logger.debug(f"✅ Job updated: {job_id} → {update_data}")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Failed to update job {job_id}: {e}")
-            return False
+        self._write_hash(redis_key, update_data)
+        logger.debug(f"✅ Job updated: {job_id} → {update_data}")
+        return True
 
     def delete_job(self, job_id: str) -> bool:
         """
@@ -181,7 +216,10 @@ class JobService:
             Success flag
         """
         redis_key = f"{settings.REDIS_KEY_PREFIX}{job_id}"
-        deleted = self.redis_client.delete(redis_key)
+        deleted = self._execute(
+            "delete job",
+            lambda: self.redis_client.delete(redis_key),
+        )
         if deleted:
             logger.info(f"✅ Job deleted: {job_id}")
         return deleted > 0
@@ -204,11 +242,17 @@ class JobService:
             List of job dicts
         """
         pattern = f"{settings.REDIS_KEY_PREFIX}*"
-        keys = self.redis_client.keys(pattern)
+        keys = self._execute(
+            "list job keys",
+            lambda: self.redis_client.keys(pattern),
+        )
 
         jobs = []
         for key in keys[:limit]:
-            job_data = self.redis_client.hgetall(key)
+            job_data = self._execute(
+                "read listed job",
+                lambda: self.redis_client.hgetall(key),
+            )
 
             # Apply filters
             if status and job_data.get("status") != status:
@@ -263,13 +307,19 @@ class JobService:
             Number of jobs deleted
         """
         pattern = f"{settings.REDIS_KEY_PREFIX}*"
-        keys = self.redis_client.keys(pattern)
+        keys = self._execute(
+            "list cleanup keys",
+            lambda: self.redis_client.keys(pattern),
+        )
 
         deleted_count = 0
         now = datetime.utcnow()
 
         for key in keys:
-            job_data = self.redis_client.hgetall(key)
+            job_data = self._execute(
+                "read cleanup job",
+                lambda: self.redis_client.hgetall(key),
+            )
             created_at_str = job_data.get("created_at")
 
             if not created_at_str:
@@ -299,3 +349,22 @@ def get_job_service() -> JobService:
     if _job_service is None:
         _job_service = JobService()
     return _job_service
+
+
+def is_redis_available() -> bool:
+    """Check Redis independently from the cached job-service dependency."""
+    client = redis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_connect_timeout=1,
+        socket_timeout=1,
+    )
+    try:
+        return bool(client.ping())
+    except RedisError:
+        return False
+    finally:
+        try:
+            client.close()
+        except RedisError:
+            pass
